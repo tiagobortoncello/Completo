@@ -936,7 +936,6 @@ def run_app():
     st.markdown("""
         <div class="title-container">
             <h1 class="main-title">Gerência de Informação Legislativa – GIL/GDI</h1>
-            <h4 class="subtitle-gil">Selecione a funcionalidade desejada:</h4>
         </div>
     """, unsafe_allow_html=True)
 
