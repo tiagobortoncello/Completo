@@ -1,0 +1,13 @@
+streamlit>=1.24.0
+pandas>=2.0.3
+PyPDF2
+PyMuPDF
+requests
+pdfplumber
+openpyxl
+pypdf
+python-docx
+scikit-learn>=1.3.0
+torch>=2.1.0
+transformers>=4.34.0
+nltk>=3.8.1
