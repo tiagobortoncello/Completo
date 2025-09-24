@@ -861,7 +861,7 @@ def gerar_termos_llm(texto_original, termos_dicionario, num_termos):
     prompt_termos = f"""
     A partir do texto abaixo, selecione até {num_termos} termos de indexação relevantes.
     Os termos de indexação devem ser selecionados EXCLUSIVAMENTE da seguinte lista:
-    {", ".join(termos_dicionario)}
+    znaj, ".join(termos_dicionario)}
     Se nenhum termo da lista for aplicável, a resposta deve ser uma lista JSON vazia: [].
     A resposta DEVE ser uma lista JSON de strings, sem texto adicional antes ou depois.
     
@@ -926,6 +926,10 @@ def run_app():
             font-size: 1.5em;
             margin-top: 5px;
         }
+        .stRadio > div {
+            flex-direction: column;
+            align-items: flex-start;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -945,7 +949,7 @@ def run_app():
             "Chatbot – Gerência de Informação Legislativa",
             "Gerador de Termos e Resumos de Proposições"
         ),
-        horizontal=True
+        horizontal=False
     )
     st.divider()
 
