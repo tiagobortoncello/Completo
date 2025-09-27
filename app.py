@@ -964,7 +964,7 @@ def correct_ocr_text(raw_text):
 
 # --- Função Principal da Aplicação ---
 def run_app():
-    st.set_page_config(page_title="Gerência de Informação Legislativa – GIL/GDI")
+    st.set_page_config(page_title="Assistente da GIL")
     
     st.markdown("""
         <style>
@@ -995,8 +995,8 @@ def run_app():
 
     st.markdown("""
         <div class="title-container">
-            <h1 class="main-title">Gerência de Informação Legislativa – GIL/GDI</h1>
-            <h4 class="subtitle-gil">Selecione a funcionalidade desejada:</h4>
+            <h1 class="main-title">Assistente da GIL</h1>
+            <h4 class="subtitle-gil">Gerência de Informação Legislativa – GIL/GDI:</h4>
         </div>
     """, unsafe_allow_html=True)
 
