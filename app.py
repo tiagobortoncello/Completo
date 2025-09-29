@@ -908,14 +908,8 @@ def gerar_termos_llm(texto_original, termos_dicionario, num_termos):
 def correct_ocr_text(raw_text):
     """
     Chama a API da Gemini para corrigir erros de OCR, normalizar a ortografia arcaica,
-    remover cabeçalho, corrigir quebras de palavra e formatar tabelas — SEM negrito.
+    remover cabeçalho e formatar dados estruturados como tabela em Markdown — SEM negrito.
     """
-    # === PRÉ-PROCESSAMENTO: Corrigir quebras de hífen no final de linha ===
-    # Remove hífens no final de linha seguidos de quebra e espaço
-    text_preprocessed = re.sub(r'-\s*\n\s*', '', raw_text)
-    # Também remove quebras de linha simples dentro de parágrafos (opcional, mas útil)
-    text_preprocessed = re.sub(r'(?<!\n)\n(?!\n)', ' ', text_preprocessed)
-
     api_key = get_api_key()
     if not api_key:
         st.error("Chave de API do Gemini não encontrada. Verifique as variáveis de ambiente ou secrets.")
@@ -931,16 +925,16 @@ Regras estritas:
 - **Remova o cabeçalho do jornal/documento**: TÍTULO (ex: "MINAS GERAES"), data, número da edição, assinatura, venda avulsa, linhas divisórias. Mantenha apenas o corpo do texto.
 - **Corrija erros óbvios de OCR** e normalize ortografia arcaica.
 - **Se o texto contiver pares claros de "rótulo … valor" (ex: "Ativo … 450:200$000"), recrie-os como uma tabela Markdown com DUAS COLUNAS, SEM CABEÇALHOS.**
-  - A primeira coluna deve conter o item descritivo.
-  - A segunda coluna deve conter o valor correspondente.
-  - **Não crie cabeçalhos como "Item" e "Valor". Use apenas `| --- | --- |` como separador.**
-  - **Se houver títulos seccionais (ex: "Receita:", "Despesa:"), inclua-os como linhas de tabela, com o texto na primeira coluna e a segunda coluna vazia.**
+  - A primeira coluna deve conter o item descritivo (ex: "Saldo de 1930", "Rendas arrecadadas").
+  - A segunda coluna deve conter o valor correspondente (ex: "13:868$112", "243:234$308").
+  - **Não crie cabeçalhos como "Item" e "Valor". Deixe as células vazias na primeira linha ou use apenas `--- | ---` como separador.**
+  - **Se houver títulos seccionais (ex: "Receita:", "Despesa:", "Situação patrimonial..."), inclua-os como linhas de tabela, com o texto na primeira coluna e a segunda coluna vazia.**
   - **Mantenha a ordem exata dos itens do texto original. Não invente, não resuma, não omita.**
-  - **Nunca adicione linhas como "Total", "Subtotal", etc., a menos que estejam explicitamente no texto.**
+  - **Nunca adicione linhas como "Total", "Subtotal", "Geral", etc., a menos que estejam explicitamente no texto.**
 - **Retorne APENAS o texto corrigido em Markdown**, sem explicações, sem blocos de código (ex: ```markdown```), sem introduções.
 """
     payload = {
-        "contents": [{"parts": [{"text": text_preprocessed}]}],
+        "contents": [{"parts": [{"text": raw_text}]}],
         "system_instruction": {"parts": [{"text": system_prompt}]}, 
     }
     try:
