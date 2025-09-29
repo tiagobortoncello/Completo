@@ -88,7 +88,7 @@ class LegislativeProcessor:
                 continue
             sigla = TIPO_MAP_NORMA[tipo_extenso]
             normas.append([sigla, numero_raw, ano])
-        return pd.DataFrame(normas)
+        return pd.DataFrame(normas, columns=['Sigla', 'Número', 'Ano'])
 
     def process_proposicoes(self) -> pd.DataFrame:
         pattern_prop = re.compile(
@@ -221,7 +221,7 @@ class LegislativeProcessor:
                 seen.add(key)
                 unique_reqs.append(r)
 
-        return pd.DataFrame(unique_reqs)
+        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
 
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
@@ -307,7 +307,7 @@ class LegislativeProcessor:
             type_str = "SUB/EMENDA" if len(types) > 1 else list(types)[0]
             pareceres.append([sigla, numero, ano, type_str])
 
-        return pd.DataFrame(pareceres)
+        return pd.DataFrame(pareceres, columns=['Sigla', 'Número', 'Ano', 'Tipo'])
 
     def process_all(self) -> dict:
         df_normas = self.process_normas()
@@ -355,15 +355,14 @@ class AdministrativeProcessor:
             if regex_dcs.search(text):
                 resultados.append(["DCS", "", ""])
         doc.close()
-        return resultados
+        return pd.DataFrame(resultados, columns=['Sigla', 'Número', 'Ano'])
 
     def to_csv(self):
-        resultados = self.process_pdf()
-        if resultados is None:
+        df = self.process_pdf()
+        if df.empty:
             return None
         output_csv = io.StringIO()
-        writer = csv.writer(output_csv, delimiter="\t")
-        writer.writerows(resultados)
+        df.to_csv(output_csv, index=False, encoding="utf-8-sig")
         return output_csv.getvalue().encode('utf-8')
 
 class ExecutiveProcessor:
@@ -921,18 +920,19 @@ def correct_ocr_text(raw_text):
     
     system_prompt = """
     Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
-    Sua tarefa é receber um texto bruto de um processo de OCR e retornar o resultado INTEIRO no formato Markdown.
+    Sua tarefa é receber um texto bruto de um processo de OCR e retornar o resultado INTEIRO no formato Markdown, com tabelas bem formatadas.
 
     **Regras de correção, normalização e formatação:**
     - **Proibição de Inferência:** É PROIBIDO **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** palavras, números, títulos ou linhas (como "Descrição", "Valor", "Total", "Subtotal") que não estejam EXPLICITAMENTE no texto bruto. O resultado deve ser 100% fiel ao conteúdo original.
     - **Remoção de Cabeçalho:** Remova cabeçalhos de jornal (ex.: "MINAS GERAES"), subtítulos, assinaturas, datas e linhas divisórias, extraindo apenas o corpo do texto.
     - **Correção Limitada:** Corrija apenas erros óbvios de OCR (ex.: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas (ex.: 'Geraes' para 'Gerais'), sem alterar palavras ou números corretos.
-    - **Tabelas:** Se o texto bruto contiver pares de dados que formam uma tabela, use a sintaxe Markdown de tabelas. Use como cabeçalhos os primeiros termos de cada coluna se forem consistentes; caso contrário, deixe sem cabeçalhos ou use placeholders como "Coluna 1", "Coluna 2" apenas se necessário. Não adicione cabeçalhos genéricos como "Descrição" ou "Valor".
+    - **Tabelas:** Identifique padrões de dados tabulares (como pares de valores em linhas consecutivas) e formate como tabelas Markdown. Use cabeçalhos explícitos apenas se presentes no texto original; caso contrário, use placeholders como "Item" e "Valor" (ou equivalentes diretos do texto). Alinhe colunas corretamente com hífens suficientes (mínimo 3 por coluna).
       - Exemplo de texto bruto: "Saldo de 1930 3.933$296\nRendas arrecadadas 212.821$643"
       - Saída esperada:
-        | Saldo de 1930 | 3.933$296 |
-        |---------------|-----------|
-        | Rendas arrecadadas | 212.821$643 |
+        | Item                  | Valor         |
+        |-----------------------|---------------|
+        | Saldo de 1930        | 3.933$296     |
+        | Rendas arrecadadas   | 212.821$643   |
     - **Parágrafos:** Mantenha a separação de parágrafos com uma linha em branco, removendo quebras desnecessárias dentro de parágrafos.
     - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, sem introduções ou explicações.
     """
@@ -1086,7 +1086,7 @@ def run_app():
                         excel_file_name = "Legislativo_Extraido.xlsx"
                         with pd.ExcelWriter(output, engine="openpyxl") as writer:
                             for sheet_name, df in extracted_data.items():
-                                df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                                df.to_excel(writer, sheet_name=sheet_name, index=False)
                         output.seek(0)
                         download_data = output
                         file_name = excel_file_name
@@ -1391,6 +1391,10 @@ def run_app():
                         )
                     
                     st.markdown("---")
+
+                    # Exibir pré-visualização do Markdown gerado
+                    st.subheader("Pré-visualização do Texto Corrigido (Markdown)")
+                    st.markdown(sidecar_text_corrected)
 
             except subprocess.CalledProcessError as e:
                 st.error(f"Erro ao processar o arquivo (OCR ou Pandoc). Detalhes: {e.stderr}")
