@@ -959,15 +959,6 @@ Regras estritas:
     except Exception as e:
         st.error(f"Ocorreu um erro inesperado durante a correção via Gemini: {e}. Exibindo texto bruto.")
     return raw_text
-        response.raise_for_status() 
-        result = response.json()
-        corrected_text = result.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
-        return corrected_text if corrected_text else raw_text
-    except requests.exceptions.HTTPError as http_err:
-        st.error(f"Erro HTTP ({http_err.response.status_code}) na correção via Gemini. Exibindo texto bruto.")
-    except Exception as e:
-        st.error(f"Ocorreu um erro inesperado durante a correção via Gemini: {e}. Exibindo texto bruto.")
-    return raw_text
 # --- Função Principal da Aplicação ---
 def run_app():
     st.set_page_config(page_title="Assistente Virtual da GIL")
