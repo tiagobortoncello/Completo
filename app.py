@@ -622,7 +622,7 @@ Regras de Resposta:
 - Responda de forma objetiva, formal e clara.
 - Se a informação não estiver no documento, responda: "A informação não foi encontrada no documento."
 - Para cada resposta, forneça uma explicação detalhada, destrinchando o processo e as regras relacionadas. Sempre que possível, cite os artigos, parágrafos e incisos relevantes do Regimento.
-- Sempre cite a fonte da sua resposta. A fonte deve be a página onde a informação foi encontrada no documento, no seguinte formato: "Você pode verificar a informação na página [cite a página] do Regimento Interno da ALMG."
+- Sempre cite a fonte da sua resposta. A fonte deve ser a página onde a informação foi encontrada no documento, no seguinte formato: "Você pode verificar a informação na página [cite a página] do Regimento Interno da ALMG."
 
 ---
 Histórico da Conversa:
@@ -745,7 +745,7 @@ def carregar_dicionario_termos(nome_arquivo):
     try:
         with open(nome_arquivo, 'r', encoding='utf-8') as f:
             for line in f:
-ikut                line = line.strip()
+                line = line.strip()
                 if not line or line.startswith('#'):
                     continue
                 
@@ -934,7 +934,7 @@ def correct_ocr_text(raw_text):
         | Saldo de 1930        | 3.933$296     |
         | Rendas arrecadadas   | 212.821$643   |
     - **Parágrafos:** Mantenha a separação de parágrafos com uma linha em branco, removendo quebras desnecessárias dentro de parágrafos.
-    - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, sem introduções ou explicações.
+    - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, without introduções ou explicações.
     """
 
     payload = {
