@@ -88,7 +88,7 @@ class LegislativeProcessor:
                 continue
             sigla = TIPO_MAP_NORMA[tipo_extenso]
             normas.append([sigla, numero_raw, ano])
-        return pd.DataFrame(normas, columns=['Sigla', 'Número', 'Ano'])
+        return pd.DataFrame(normas)
 
     def process_proposicoes(self) -> pd.DataFrame:
         pattern_prop = re.compile(
@@ -221,7 +221,7 @@ class LegislativeProcessor:
                 seen.add(key)
                 unique_reqs.append(r)
 
-        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+        return pd.DataFrame(unique_reqs)
 
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
@@ -307,7 +307,7 @@ class LegislativeProcessor:
             type_str = "SUB/EMENDA" if len(types) > 1 else list(types)[0]
             pareceres.append([sigla, numero, ano, type_str])
 
-        return pd.DataFrame(pareceres, columns=['Sigla', 'Número', 'Ano', 'Tipo'])
+        return pd.DataFrame(pareceres)
 
     def process_all(self) -> dict:
         df_normas = self.process_normas()
@@ -355,14 +355,15 @@ class AdministrativeProcessor:
             if regex_dcs.search(text):
                 resultados.append(["DCS", "", ""])
         doc.close()
-        return pd.DataFrame(resultados, columns=['Sigla', 'Número', 'Ano'])
+        return resultados
 
     def to_csv(self):
-        df = self.process_pdf()
-        if df.empty:
+        resultados = self.process_pdf()
+        if resultados is None:
             return None
         output_csv = io.StringIO()
-        df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+        writer = csv.writer(output_csv, delimiter="\t")
+        writer.writerows(resultados)
         return output_csv.getvalue().encode('utf-8')
 
 class ExecutiveProcessor:
@@ -920,21 +921,18 @@ def correct_ocr_text(raw_text):
     
     system_prompt = """
     Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
-    Sua tarefa é receber um texto bruto de um processo de OCR e retornar o resultado INTEIRO no formato Markdown, com tabelas bem formatadas.
+    Sua tarefa é receber um texto bruto de um processo de OCR, corrigir erros e normalizar a ortografia arcaica (comum em documentos legais e antigos).
 
-    **Regras de correção, normalização e formatação:**
-    - **Proibição de Inferência:** É PROIBIDO **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** palavras, números, títulos ou linhas (como "Descrição", "Valor", "Total", "Subtotal") que não estejam EXPLICITAMENTE no texto bruto. O resultado deve ser 100% fiel ao conteúdo original.
-    - **Remoção de Cabeçalho:** Remova cabeçalhos de jornal (ex.: "MINAS GERAES"), subtítulos, assinaturas, datas e linhas divisórias, extraindo apenas o corpo do texto.
-    - **Correção Limitada:** Corrija apenas erros óbvios de OCR (ex.: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas (ex.: 'Geraes' para 'Gerais'), sem alterar palavras ou números corretos.
-    - **Tabelas:** Identifique padrões de dados tabulares (como pares de valores em linhas consecutivas) e formate como tabelas Markdown. Use cabeçalhos explícitos apenas se presentes no texto original; caso contrário, use placeholders como "Item" e "Valor" (ou equivalentes diretos do texto). Alinhe colunas corretamente com hífens suficientes (mínimo 3 por coluna).
-      - Exemplo de texto bruto: "Saldo de 1930 3.933$296\nRendas arrecadadas 212.821$643"
-      - Saída esperada:
-        | Item                  | Valor         |
-        |-----------------------|---------------|
-        | Saldo de 1930        | 3.933$296     |
-        | Rendas arrecadadas   | 212.821$643   |
-    - **Parágrafos:** Mantenha a separação de parágrafos com uma linha em branco, removendo quebras desnecessárias dentro de parágrafos.
-    - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, sem introduções ou explicações.
+    **Você deve retornar o resultado INTEIRO no formato Markdown.**
+
+    Regras de correção, normalização e formatação:
+    - **Proibição de Inferência de Dados:** É proibido **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** quaisquer palavras, números, títulos ou linhas de rodapé (como "Total", "Subtotal", "Geral") que não estejam explicitamente no texto bruto do OCR. **Mantenha-se 100% fiel aos dados.**
+    - **Remoção de Cabeçalho:** Remova o cabeçalho do jornal ou documento, incluindo TÍTULO (Ex: "MINAS GERAES"), subtítulo, informações de ASSINATURA, VENDA AVULSA, data, número da edição e quaisquer linhas divisórias. O objetivo é extrair APENAS o corpo legal/noticioso do texto.
+    - **Correção e Normalização:** Corrija falhas de detecção do OCR (ex: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas ('Geraes' para 'Gerais', 'legaes' para 'legais').
+    - **Tabelas:** Se o texto extraído contiver dados que formavam uma tabela no PDF, **RE-CRIE ESSA TABELA usando a sintaxe Markdown de tabelas** (cabeçalhos, separadores e linhas). Use cabeçalhos de coluna APENAS se estiverem visíveis no texto bruto.
+    - **Parágrafos:** Após a correção e remoção, mantenha a separação de parágrafos, inserindo uma linha em branco entre eles. Remova apenas quebras de linha desnecessárias dentro de um mesmo parágrafo e espaços múltiplos.
+    - **Não crie ou deduza palavras que não estejam completas no texto.**
+    - **Retorne APENAS o texto corrigido e formatado em Markdown**, sem qualquer introdução, explicação ou formatação adicional (como ```markdown```).
     """
 
     payload = {
@@ -955,14 +953,6 @@ def correct_ocr_text(raw_text):
         result = response.json()
         
         corrected_text = result.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
-        
-        # Validação para remover cabeçalhos indesejados
-        forbidden_headers = ["Descrição", "Valor", "Total", "Subtotal"]
-        for header in forbidden_headers:
-            if header.lower() in corrected_text.lower() and header.lower() not in raw_text.lower():
-                corrected_text = re.sub(rf'^\s*{re.escape(header)}\s*\|', '', corrected_text, flags=re.MULTILINE)
-                st.warning(f"Aviso: '{header}' removido por ser uma inferência.")
-
         return corrected_text if corrected_text else raw_text
 
     except requests.exceptions.HTTPError as http_err:
@@ -1086,7 +1076,7 @@ def run_app():
                         excel_file_name = "Legislativo_Extraido.xlsx"
                         with pd.ExcelWriter(output, engine="openpyxl") as writer:
                             for sheet_name, df in extracted_data.items():
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
                         output.seek(0)
                         download_data = output
                         file_name = excel_file_name
@@ -1391,10 +1381,6 @@ def run_app():
                         )
                     
                     st.markdown("---")
-
-                    # Exibir pré-visualização do Markdown gerado
-                    st.subheader("Pré-visualização do Texto Corrigido (Markdown)")
-                    st.markdown(sidecar_text_corrected)
 
             except subprocess.CalledProcessError as e:
                 st.error(f"Erro ao processar o arquivo (OCR ou Pandoc). Detalhes: {e.stderr}")
