@@ -921,18 +921,20 @@ def correct_ocr_text(raw_text):
     
     system_prompt = """
     Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
-    Sua tarefa é receber um texto bruto de um processo de OCR, corrigir erros e normalizar a ortografia arcaica (comum em documentos legais e antigos).
+    Sua tarefa é receber um texto bruto de um processo de OCR e retornar o resultado INTEIRO no formato Markdown.
 
-    **Você deve retornar o resultado INTEIRO no formato Markdown.**
-
-    Regras de correção, normalização e formatação:
-    - **Proibição de Inferência de Dados:** É proibido **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** quaisquer palavras, números, títulos ou linhas de rodapé (como "Total", "Subtotal", "Geral") que não estejam explicitamente no texto bruto do OCR. **Mantenha-se 100% fiel aos dados.**
-    - **Remoção de Cabeçalho:** Remova o cabeçalho do jornal ou documento, incluindo TÍTULO (Ex: "MINAS GERAES"), subtítulo, informações de ASSINATURA, VENDA AVULSA, data, número da edição e quaisquer linhas divisórias. O objetivo é extrair APENAS o corpo legal/noticioso do texto.
-    - **Correção e Normalização:** Corrija falhas de detecção do OCR (ex: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas ('Geraes' para 'Gerais', 'legaes' para 'legais').
-    - **Tabelas:** Se o texto extraído contiver dados que formavam uma tabela no PDF, **RE-CRIE ESSA TABELA usando a sintaxe Markdown de tabelas** (cabeçalhos, separadores e linhas). Use cabeçalhos de coluna APENAS se estiverem visíveis no texto bruto.
-    - **Parágrafos:** Após a correção e remoção, mantenha a separação de parágrafos, inserindo uma linha em branco entre eles. Remova apenas quebras de linha desnecessárias dentro de um mesmo parágrafo e espaços múltiplos.
-    - **Não crie ou deduza palavras que não estejam completas no texto.**
-    - **Retorne APENAS o texto corrigido e formatado em Markdown**, sem qualquer introdução, explicação ou formatação adicional (como ```markdown```).
+    **Regras de correção, normalização e formatação:**
+    - **Proibição de Inferência:** É PROIBIDO **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** palavras, números, títulos ou linhas (como "Descrição", "Valor", "Total", "Subtotal") que não estejam EXPLICITAMENTE no texto bruto. O resultado deve ser 100% fiel ao conteúdo original.
+    - **Remoção de Cabeçalho:** Remova cabeçalhos de jornal (ex.: "MINAS GERAES"), subtítulos, assinaturas, datas e linhas divisórias, extraindo apenas o corpo do texto.
+    - **Correção Limitada:** Corrija apenas erros óbvios de OCR (ex.: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas (ex.: 'Geraes' para 'Gerais'), sem alterar palavras ou números corretos.
+    - **Tabelas:** Se o texto bruto contiver pares de dados que formam uma tabela, use a sintaxe Markdown de tabelas. Use como cabeçalhos os primeiros termos de cada coluna se forem consistentes; caso contrário, deixe sem cabeçalhos ou use placeholders como "Coluna 1", "Coluna 2" apenas se necessário. Não adicione cabeçalhos genéricos como "Descrição" ou "Valor".
+      - Exemplo de texto bruto: "Saldo de 1930 3.933$296\nRendas arrecadadas 212.821$643"
+      - Saída esperada:
+        | Saldo de 1930 | 3.933$296 |
+        |---------------|-----------|
+        | Rendas arrecadadas | 212.821$643 |
+    - **Parágrafos:** Mantenha a separação de parágrafos com uma linha em branco, removendo quebras desnecessárias dentro de parágrafos.
+    - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, sem introduções ou explicações.
     """
 
     payload = {
@@ -953,6 +955,14 @@ def correct_ocr_text(raw_text):
         result = response.json()
         
         corrected_text = result.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
+        
+        # Validação para remover cabeçalhos indesejados
+        forbidden_headers = ["Descrição", "Valor", "Total", "Subtotal"]
+        for header in forbidden_headers:
+            if header.lower() in corrected_text.lower() and header.lower() not in raw_text.lower():
+                corrected_text = re.sub(rf'^\s*{re.escape(header)}\s*\|', '', corrected_text, flags=re.MULTILINE)
+                st.warning(f"Aviso: '{header}' removido por ser uma inferência.")
+
         return corrected_text if corrected_text else raw_text
 
     except requests.exceptions.HTTPError as http_err:
