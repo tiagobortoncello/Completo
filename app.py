@@ -908,7 +908,7 @@ def gerar_termos_llm(texto_original, termos_dicionario, num_termos):
 def correct_ocr_text(raw_text):
     """
     Chama a API da Gemini para corrigir erros de OCR, normalizar a ortografia arcaica,
-    IGNORAR O CABEÇALHO e **REFORMATAR EM MARKDOWN, INCLUINDO TABELAS**, sendo fiel aos dados.
+    remover cabeçalho e formatar dados estruturados como tabela em Markdown — SEM negrito.
     """
     api_key = get_api_key()
     if not api_key:
@@ -917,20 +917,21 @@ def correct_ocr_text(raw_text):
     apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     system_prompt = """
 Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
-Sua tarefa é receber um texto bruto de um processo de OCR, corrigir erros e normalizar a ortografia arcaica (comum em documentos legais e antigos).
+Sua tarefa é receber um texto bruto de OCR, corrigir erros e normalizar a ortografia arcaica (ex: 'Geraes' → 'Gerais', 'legaes' → 'legais').
 **Você deve retornar o resultado INTEIRO no formato Markdown.**
-Regras de correção, normalização e formatação:
-- **Proibição absoluta de inferência ou invenção:** É proibido **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** quaisquer palavras, números, títulos, linhas de rodapé (como "Total", "Subtotal", "Geral", "Valor", "Descrição", etc.) ou cabeçalhos de coluna que não estejam **explicitamente visíveis no texto bruto do OCR**. **Mantenha-se 100% fiel aos dados.**
-- **Remoção de Cabeçalho:** Remova o cabeçalho do jornal ou documento, incluindo TÍTULO (Ex: "MINAS GERAES"), subtítulo, informações de ASSINATURA, VENDA AVULSA, data, número da edição e quaisquer linhas divisórias. O objetivo é extrair APENAS o corpo legal/noticioso do texto.
-- **Correção e Normalização:** Corrija falhas de detecção do OCR (ex: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas ('Geraes' para 'Gerais', 'legaes' para 'legais').
-- **Tabelas:**
-    - Só recrie uma tabela em Markdown **se o texto bruto exibir claramente uma estrutura tabular** (ex: colunas alinhadas com espaços ou tabulações).
-    - **Nunca crie cabeçalhos de coluna** se eles não estiverem presentes no texto bruto.
-    - Se houver cabeçalhos, copie-os **exatamente como aparecem**, sem reformular.
-    - **Não use negrito (`**` ou `__`) em nenhum elemento da tabela ou em qualquer parte do texto.**
-- **Parágrafos:** Após a correção e remoção, mantenha a separação de parágrafos, inserindo uma linha em branco entre eles. Remova apenas quebras de linha desnecessárias dentro de um mesmo parágrafo e espaços múltiplos.
-- **Não crie ou deduza palavras que não estejam completas no texto.**
-- **Retorne APENAS o texto corrigido e formatado em Markdown**, sem qualquer introdução, explicação ou formatação adicional (como ```markdown```).
+
+Regras estritas:
+- **NÃO use negrito (`**` ou `__`) em NENHUMA parte do texto.**
+- **Remova o cabeçalho do jornal/documento**: TÍTULO (ex: "MINAS GERAES"), data, número da edição, assinatura, venda avulsa, linhas divisórias. Mantenha apenas o corpo do texto.
+- **Corrija erros óbvios de OCR** e normalize ortografia arcaica.
+- **Se o texto contiver pares claros de "rótulo … valor" (ex: "Ativo … 450:200$000"), recrie-os como uma tabela Markdown com DUAS COLUNAS, SEM CABEÇALHOS.**
+  - A primeira coluna deve conter o item descritivo (ex: "Saldo de 1930", "Rendas arrecadadas").
+  - A segunda coluna deve conter o valor correspondente (ex: "13:868$112", "243:234$308").
+  - **Não crie cabeçalhos como "Item" e "Valor". Deixe as células vazias na primeira linha ou use apenas `--- | ---` como separador.**
+  - **Se houver títulos seccionais (ex: "Receita:", "Despesa:", "Situação patrimonial..."), inclua-os como linhas de tabela, com o texto na primeira coluna e a segunda coluna vazia.**
+  - **Mantenha a ordem exata dos itens do texto original. Não invente, não resuma, não omita.**
+  - **Nunca adicione linhas como "Total", "Subtotal", "Geral", etc., a menos que estejam explicitamente no texto.**
+- **Retorne APENAS o texto corrigido em Markdown**, sem explicações, sem blocos de código (ex: ```markdown```), sem introduções.
 """
     payload = {
         "contents": [{"parts": [{"text": raw_text}]}],
