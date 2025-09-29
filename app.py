@@ -911,67 +911,47 @@ def correct_ocr_text(raw_text):
     IGNORAR O CABEÇALHO e **REFORMATAR EM MARKDOWN, INCLUINDO TABELAS**, sendo fiel aos dados.
     """
     api_key = get_api_key()
-    
     if not api_key:
         st.error("Chave de API do Gemini não encontrada. Verifique as variáveis de ambiente ou secrets.")
         return raw_text
-    
     apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    
     system_prompt = """
-    Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
-    Sua tarefa é receber um texto bruto de um processo de OCR e retornar o resultado INTEIRO no formato Markdown, com tabelas bem formatadas para conversão correta em ODT.
-
-    **Regras de correção, normalização e formatação:**
-    - **Proibição de Inferência:** É PROIBIDO **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** palavras, números, títulos ou linhas (como "Descrição", "Valor", "Total", "Subtotal") que não estejam EXPLICITAMENTE no texto bruto. O resultado deve ser 100% fiel ao conteúdo original.
-    - **Remoção de Cabeçalho:** Remova cabeçalhos de jornal (ex.: "MINAS GERAES"), subtítulos, assinaturas, datas e linhas divisórias, extraindo apenas o corpo do texto.
-    - **Correção Limitada:** Corrija apenas erros óbvios de OCR (ex.: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas (ex.: 'Geraes' para 'Gerais'), sem alterar palavras ou números corretos.
-    - **Tabelas:** Identifique padrões de dados tabulares (como pares de valores em linhas consecutivas) e formate como tabelas Markdown. Use cabeçalhos explícitos apenas se presentes no texto original; caso contrário, use placeholders como "Item" e "Valor" (ou equivalentes diretos do texto). Assegure que as colunas estejam alinhadas corretamente com pelo menos 3 hífens por coluna para compatibilidade com Pandoc.
-      - Exemplo de texto bruto: "Saldo de 1930 3.933$296\nRendas arrecadadas 212.821$643"
-      - Saída esperada:
-        | Item                  | Valor         |
-        |-----------------------|---------------|
-        | Saldo de 1930        | 3.933$296     |
-        | Rendas arrecadadas   | 212.821$643   |
-    - **Parágrafos:** Mantenha a separação de parágrafos com uma linha em branco, removendo quebras desnecessárias dentro de parágrafos.
-    - **Saída:** Retorne APENAS o texto corrigido e formatado em Markdown, without introduções ou explicações.
-    """
-
+Você é um corretor ortográfico e normalizador de texto brasileiro, especializado em documentos históricos.
+Sua tarefa é receber um texto bruto de um processo de OCR, corrigir erros e normalizar a ortografia arcaica (comum em documentos legais e antigos).
+**Você deve retornar o resultado INTEIRO no formato Markdown.**
+Regras de correção, normalização e formatação:
+- **Proibição absoluta de inferência ou invenção:** É proibido **INVENTAR, DEDUZIR, RESUMIR ou ADICIONAR** quaisquer palavras, números, títulos, linhas de rodapé (como "Total", "Subtotal", "Geral", "Valor", "Descrição", etc.) ou cabeçalhos de coluna que não estejam **explicitamente visíveis no texto bruto do OCR**. **Mantenha-se 100% fiel aos dados.**
+- **Remoção de Cabeçalho:** Remova o cabeçalho do jornal ou documento, incluindo TÍTULO (Ex: "MINAS GERAES"), subtítulo, informações de ASSINATURA, VENDA AVULSA, data, número da edição e quaisquer linhas divisórias. O objetivo é extrair APENAS o corpo legal/noticioso do texto.
+- **Correção e Normalização:** Corrija falhas de detecção do OCR (ex: 'Asy!o' para 'Asilo') e normalize ortografias arcaicas ('Geraes' para 'Gerais', 'legaes' para 'legais').
+- **Tabelas:**
+    - Só recrie uma tabela em Markdown **se o texto bruto exibir claramente uma estrutura tabular** (ex: colunas alinhadas com espaços ou tabulações).
+    - **Nunca crie cabeçalhos de coluna** se eles não estiverem presentes no texto bruto.
+    - Se houver cabeçalhos, copie-os **exatamente como aparecem**, sem reformular.
+    - **Não use negrito (`**` ou `__`) em nenhum elemento da tabela ou em qualquer parte do texto.**
+- **Parágrafos:** Após a correção e remoção, mantenha a separação de parágrafos, inserindo uma linha em branco entre eles. Remova apenas quebras de linha desnecessárias dentro de um mesmo parágrafo e espaços múltiplos.
+- **Não crie ou deduza palavras que não estejam completas no texto.**
+- **Retorne APENAS o texto corrigido e formatado em Markdown**, sem qualquer introdução, explicação ou formatação adicional (como ```markdown```).
+"""
     payload = {
         "contents": [{"parts": [{"text": raw_text}]}],
         "system_instruction": {"parts": [{"text": system_prompt}]}, 
     }
-    
     try:
         response = requests.post(apiUrl, 
                                 headers={'Content-Type': 'application/json'}, 
                                 data=json.dumps(payload))
-        
         if response.status_code == 400:
             st.error(f"Erro detalhado da API (400): {response.text}. Verifique o tamanho do PDF.")
             return raw_text
-
         response.raise_for_status() 
         result = response.json()
-        
         corrected_text = result.get("candidates", [])[0].get("content", {}).get("parts", [])[0].get("text", "")
-        
-        # Validação para remover cabeçalhos indesejados
-        forbidden_headers = ["Descrição", "Valor", "Total", "Subtotal"]
-        for header in forbidden_headers:
-            if header.lower() in corrected_text.lower() and header.lower() not in raw_text.lower():
-                corrected_text = re.sub(rf'^\s*{re.escape(header)}\s*\|', '', corrected_text, flags=re.MULTILINE)
-                st.warning(f"Aviso: '{header}' removido por ser uma inferência.")
-
         return corrected_text if corrected_text else raw_text
-
     except requests.exceptions.HTTPError as http_err:
         st.error(f"Erro HTTP ({http_err.response.status_code}) na correção via Gemini. Exibindo texto bruto.")
     except Exception as e:
         st.error(f"Ocorreu um erro inesperado durante a correção via Gemini: {e}. Exibindo texto bruto.")
-
     return raw_text
-
 # --- Função Principal da Aplicação ---
 def run_app():
     st.set_page_config(page_title="Assistente Virtual da GIL")
