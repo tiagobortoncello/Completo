@@ -88,7 +88,7 @@ class LegislativeProcessor:
                 continue
             sigla = TIPO_MAP_NORMA[tipo_extenso]
             normas.append([sigla, numero_raw, ano])
-        return pd.DataFrame(normas, columns=['Sigla', 'Número', 'Ano'])
+        return pd.DataFrame(normas) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano']
 
     def process_proposicoes(self) -> pd.DataFrame:
         pattern_prop = re.compile(
@@ -123,8 +123,8 @@ class LegislativeProcessor:
             proposicoes.append([sigla, numero, ano, categoria])
 
         return pd.DataFrame(
-            proposicoes,
-            columns=['Sigla', 'Número', 'Ano', 'Categoria']
+            proposicoes
+            # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Categoria']
         )
 
     def process_requerimentos(self) -> pd.DataFrame:
@@ -221,7 +221,7 @@ class LegislativeProcessor:
                 seen.add(key)
                 unique_reqs.append(r)
 
-        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+        return pd.DataFrame(unique_reqs) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação']
 
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
@@ -232,7 +232,8 @@ class LegislativeProcessor:
         )
         pareceres_start = pareceres_start_pattern.search(self.text)
         if not pareceres_start:
-            return pd.DataFrame(columns=['Sigla', 'Número', 'Ano', 'Tipo'])
+            # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Tipo']
+            return pd.DataFrame() 
 
         pareceres_text = self.text[pareceres_start.end():]
         clean_text = pareceres_text
@@ -307,7 +308,7 @@ class LegislativeProcessor:
             type_str = "SUB/EMENDA" if len(types) > 1 else list(types)[0]
             pareceres.append([sigla, numero, ano, type_str])
 
-        return pd.DataFrame(pareceres, columns=['Sigla', 'Número', 'Ano', 'Tipo'])
+        return pd.DataFrame(pareceres) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Tipo']
 
     def process_all(self) -> dict:
         df_normas = self.process_normas()
