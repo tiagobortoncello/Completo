@@ -74,7 +74,7 @@ class LegislativeProcessor:
     def __init__(self, text: str):
         self.text = text
 
-    def process_normas(self) -> list: # Retorna lista
+    def process_normas(self) -> pd.DataFrame:
         pattern = re.compile(
             r"^(LEI COMPLEMENTAR|LEI|RESOLUÇÃO|EMENDA À CONSTITUIÇÃO|DELIBERAÇÃO DA MESA) Nº (\d{1,5}(?:\.\d{0,3})?)(?:/(\d{4}))?(?:, DE .+ DE (\d{4}))?$",
             re.MULTILINE
@@ -88,9 +88,9 @@ class LegislativeProcessor:
                 continue
             sigla = TIPO_MAP_NORMA[tipo_extenso]
             normas.append([sigla, numero_raw, ano])
-        return normas # Retorna a lista diretamente
+        return pd.DataFrame(normas, columns=['Sigla', 'Número', 'Ano'])
 
-    def process_proposicoes(self) -> list: # Retorna lista
+    def process_proposicoes(self) -> pd.DataFrame:
         pattern_prop = re.compile(
             r"^\s*(?:- )?\s*(PROJETO DE LEI COMPLEMENTAR|PROJETO DE LEI|INDICAÇÃO|PROJETO DE RESOLUÇÃO|PROPOSTA DE EMENDA À CONSTITUIÇÃO|MENSAGEM|VETO) Nº (\d{1,4}\.?\d{0,3}/\d{4})",
             re.MULTILINE
@@ -122,9 +122,12 @@ class LegislativeProcessor:
             categoria = "UP" if pattern_utilidade.search(subseq_text) else ""
             proposicoes.append([sigla, numero, ano, categoria])
 
-        return proposicoes # Retorna a lista diretamente
+        return pd.DataFrame(
+            proposicoes,
+            columns=['Sigla', 'Número', 'Ano', 'Categoria']
+        )
 
-    def process_requerimentos(self) -> list: # Retorna lista
+    def process_requerimentos(self) -> pd.DataFrame:
         requerimentos = []
         ignore_pattern = re.compile(
             r"Ofício nº .*?,.*?relativas ao Requerimento\s*nº (\d{1,4}\.?\d{0,3}/\d{4})",
@@ -218,9 +221,9 @@ class LegislativeProcessor:
                 seen.add(key)
                 unique_reqs.append(r)
 
-        return unique_reqs # Retorna a lista diretamente
+        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
 
-    def process_pareceres(self) -> list: # Retorna lista
+    def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
         pareceres_start_pattern = re.compile(r"TRAMITAÇÃO DE PROPOSIÇÕES")
         votacao_pattern = re.compile(
@@ -229,7 +232,7 @@ class LegislativeProcessor:
         )
         pareceres_start = pareceres_start_pattern.search(self.text)
         if not pareceres_start:
-            return [] # Retorna lista vazia
+            return pd.DataFrame(columns=['Sigla', 'Número', 'Ano', 'Tipo'])
 
         pareceres_text = self.text[pareceres_start.end():]
         clean_text = pareceres_text
@@ -304,10 +307,9 @@ class LegislativeProcessor:
             type_str = "SUB/EMENDA" if len(types) > 1 else list(types)[0]
             pareceres.append([sigla, numero, ano, type_str])
 
-        return pareceres # Retorna a lista diretamente
+        return pd.DataFrame(pareceres, columns=['Sigla', 'Número', 'Ano', 'Tipo'])
 
     def process_all(self) -> dict:
-        # As funções agora retornam listas de dados, que é o seu "conteúdo"
         df_normas = self.process_normas()
         df_proposicoes = self.process_proposicoes()
         df_requerimentos = self.process_requerimentos()
@@ -318,6 +320,50 @@ class LegislativeProcessor:
             "Requerimentos": df_requerimentos,
             "Pareceres": df_pareceres
         }
+
+class AdministrativeProcessor:
+    def __init__(self, pdf_bytes: bytes):
+        self.pdf_bytes = pdf_bytes
+
+    def process_pdf(self):
+        try:
+            doc = fitz.open(stream=self.pdf_bytes, filetype="pdf")
+        except Exception as e:
+            st.error(f"Erro ao abrir o arquivo PDF: {e}")
+            return None
+
+        resultados = []
+        regex = re.compile(
+            r'(DELIBERAÇÃO DA MESA|PORTARIA DGE|ORDEM DE SERVIÇO PRES/PSEC)\s+Nº\s+([\d\.]+)\/(\d{4})'
+        )
+        regex_dcs = re.compile(r'DECIS[ÃA]O DA 1ª-SECRETARIA')
+
+        for page in doc:
+            text = page.get_text("text")
+            text = re.sub(r'\s+', ' ', text)
+            for match in regex.finditer(text):
+                tipo_texto = match.group(1)
+                numero = match.group(2).replace('.', '')
+                ano = match.group(3)
+                sigla = {
+                    "DELIBERAÇÃO DA MESA": "DLB",
+                    "PORTARIA DGE": "PRT",
+                    "ORDEM DE SERVIÇO PRES/PSEC": "OSV"
+                }.get(tipo_texto, None)
+                if sigla:
+                    resultados.append([sigla, numero, ano])
+            if regex_dcs.search(text):
+                resultados.append(["DCS", "", ""])
+        doc.close()
+        return pd.DataFrame(resultados, columns=['Sigla', 'Número', 'Ano'])
+
+    def to_csv(self):
+        df = self.process_pdf()
+        if df.empty:
+            return None
+        output_csv = io.StringIO()
+        df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+        return output_csv.getvalue().encode('utf-8')
 
 class ExecutiveProcessor:
     def __init__(self, pdf_bytes: bytes):
