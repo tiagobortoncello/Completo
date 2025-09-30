@@ -74,7 +74,7 @@ class LegislativeProcessor:
     def __init__(self, text: str):
         self.text = text
 
-    def process_normas(self) -> pd.DataFrame:
+    def process_normas(self) -> list: # Mudança no tipo de retorno
         pattern = re.compile(
             r"^(LEI COMPLEMENTAR|LEI|RESOLUÇÃO|EMENDA À CONSTITUIÇÃO|DELIBERAÇÃO DA MESA) Nº (\d{1,5}(?:\.\d{0,3})?)(?:/(\d{4}))?(?:, DE .+ DE (\d{4}))?$",
             re.MULTILINE
@@ -88,9 +88,9 @@ class LegislativeProcessor:
                 continue
             sigla = TIPO_MAP_NORMA[tipo_extenso]
             normas.append([sigla, numero_raw, ano])
-        return pd.DataFrame(normas) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano']
+        return normas # Retorna a lista, sem criar o DataFrame
 
-    def process_proposicoes(self) -> pd.DataFrame:
+    def process_proposicoes(self) -> list: # Mudança no tipo de retorno
         pattern_prop = re.compile(
             r"^\s*(?:- )?\s*(PROJETO DE LEI COMPLEMENTAR|PROJETO DE LEI|INDICAÇÃO|PROJETO DE RESOLUÇÃO|PROPOSTA DE EMENDA À CONSTITUIÇÃO|MENSAGEM|VETO) Nº (\d{1,4}\.?\d{0,3}/\d{4})",
             re.MULTILINE
@@ -122,12 +122,9 @@ class LegislativeProcessor:
             categoria = "UP" if pattern_utilidade.search(subseq_text) else ""
             proposicoes.append([sigla, numero, ano, categoria])
 
-        return pd.DataFrame(
-            proposicoes
-            # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Categoria']
-        )
+        return proposicoes # Retorna a lista, sem criar o DataFrame
 
-    def process_requerimentos(self) -> pd.DataFrame:
+    def process_requerimentos(self) -> list: # Mudança no tipo de retorno
         requerimentos = []
         ignore_pattern = re.compile(
             r"Ofício nº .*?,.*?relativas ao Requerimento\s*nº (\d{1,4}\.?\d{0,3}/\d{4})",
@@ -221,9 +218,9 @@ class LegislativeProcessor:
                 seen.add(key)
                 unique_reqs.append(r)
 
-        return pd.DataFrame(unique_reqs) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação']
+        return unique_reqs # Retorna a lista, sem criar o DataFrame
 
-    def process_pareceres(self) -> pd.DataFrame:
+    def process_pareceres(self) -> list: # Mudança no tipo de retorno
         found_projects = {}
         pareceres_start_pattern = re.compile(r"TRAMITAÇÃO DE PROPOSIÇÕES")
         votacao_pattern = re.compile(
@@ -232,8 +229,7 @@ class LegislativeProcessor:
         )
         pareceres_start = pareceres_start_pattern.search(self.text)
         if not pareceres_start:
-            # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Tipo']
-            return pd.DataFrame() 
+            return [] # Retorna lista vazia
 
         pareceres_text = self.text[pareceres_start.end():]
         clean_text = pareceres_text
@@ -308,9 +304,10 @@ class LegislativeProcessor:
             type_str = "SUB/EMENDA" if len(types) > 1 else list(types)[0]
             pareceres.append([sigla, numero, ano, type_str])
 
-        return pd.DataFrame(pareceres) # Linha modificada: removido columns=['Sigla', 'Número', 'Ano', 'Tipo']
+        return pareceres # Retorna a lista, sem criar o DataFrame
 
     def process_all(self) -> dict:
+        # A função process_all agora retorna listas de dados em vez de DataFrames
         df_normas = self.process_normas()
         df_proposicoes = self.process_proposicoes()
         df_requerimentos = self.process_requerimentos()
@@ -321,7 +318,6 @@ class LegislativeProcessor:
             "Requerimentos": df_requerimentos,
             "Pareceres": df_pareceres
         }
-
 class AdministrativeProcessor:
     def __init__(self, pdf_bytes: bytes):
         self.pdf_bytes = pdf_bytes
