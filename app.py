@@ -774,16 +774,12 @@ def carregar_dicionario_termos(nome_arquivo):
         
     return termos, mapa_hierarquia
 
-import pandas as pd
-import os # Importe esta biblioteca para verificar se o arquivo existe
-
 def carregar_exemplos_resumos(nome_arquivo):
     """
     Carrega exemplos de resumos de um arquivo CSV.
     Retorna uma lista de strings formatadas para o prompt.
     """
     if not os.path.exists(nome_arquivo):
-        # Tratar o erro ou retornar uma lista vazia
         print(f"Aviso: Arquivo de exemplos '{nome_arquivo}' não encontrado. Usando apenas o prompt base.")
         return []
     
@@ -791,7 +787,6 @@ def carregar_exemplos_resumos(nome_arquivo):
         df = pd.read_csv(nome_arquivo)
         exemplos_formatados = []
         
-        # Cria uma string formatada para incluir no prompt
         for index, row in df.iterrows():
             exemplo = f"""
             --- Exemplo {index + 1} ---
@@ -835,7 +830,6 @@ def gerar_resumo(texto_original, exemplos_resumos):
         st.error("Erro: A chave de API não foi configurada.")
         return None
 
-    # URL e Modelo
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     regras_adicionais = """
@@ -862,7 +856,6 @@ def gerar_resumo(texto_original, exemplos_resumos):
     - Represente os numerais de 0 a 9 por extenso, para 10 ou mais, use apenas o algarismo.
     """
     
-    # 1. Prepara a seção de exemplos para o Prompt
     exemplos_prompt = "\n".join(exemplos_resumos)
     contexto_exemplos = ""
     if exemplos_prompt:
@@ -872,7 +865,6 @@ def gerar_resumo(texto_original, exemplos_resumos):
         {exemplos_prompt}
         """
 
-    # 2. Constrói o Prompt Final
     prompt_resumo = f"""
     {contexto_exemplos}
     
@@ -1005,6 +997,7 @@ Regras estritas:
     except Exception as e:
         st.error(f"Ocorreu um erro inesperado durante a correção via Gemini: {e}. Exibindo texto bruto.")
     return raw_text
+
 # --- Função Principal da Aplicação ---
 def run_app():
     st.set_page_config(page_title="Assistente Virtual da GIL")
@@ -1304,6 +1297,9 @@ def run_app():
                     resumo_gerado = ""
                     termos_finais = []
                     
+                    # Carregar exemplos de resumos
+                    exemplos_resumos = carregar_exemplos_resumos("exemplos_resumos.csv")
+                    
                     match_doacao = re.search(r"Município de ([\w\s-]+?)(?:\s+o\simóvel|\s+os\simóveis|\s*\d)", texto_proposicao, re.IGNORECASE)
                     match_servidao = re.search(r"declara de utilidade pública,.*servidão.*no Município de ([\w\s-]+)", texto_proposicao, re.IGNORECASE | re.DOTALL)
                     match_utilidade_publica = re.search(r"declara de utilidade pública.*no Município de ([\w\s-]+)", texto_proposicao, re.IGNORECASE | re.DOTALL)
@@ -1322,7 +1318,7 @@ def run_app():
                         resumo_gerado = "Não precisa de resumo."
                     else:
                         if tipo_documento_selecionado == "Proposição":
-                            resumo_gerado = gerar_resumo(texto_proposicao)
+                            resumo_gerado = gerar_resumo(texto_proposicao, exemplos_resumos)
                         elif tipo_documento_selecionado == "Requerimento":
                             resumo_gerado = "Não precisa de resumo."
 
