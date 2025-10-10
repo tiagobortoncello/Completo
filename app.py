@@ -774,6 +774,38 @@ def carregar_dicionario_termos(nome_arquivo):
         
     return termos, mapa_hierarquia
 
+import pandas as pd
+import os # Importe esta biblioteca para verificar se o arquivo existe
+
+def carregar_exemplos_resumos(nome_arquivo):
+    """
+    Carrega exemplos de resumos de um arquivo CSV.
+    Retorna uma lista de strings formatadas para o prompt.
+    """
+    if not os.path.exists(nome_arquivo):
+        # Tratar o erro ou retornar uma lista vazia
+        print(f"Aviso: Arquivo de exemplos '{nome_arquivo}' não encontrado. Usando apenas o prompt base.")
+        return []
+    
+    try:
+        df = pd.read_csv(nome_arquivo)
+        exemplos_formatados = []
+        
+        # Cria uma string formatada para incluir no prompt
+        for index, row in df.iterrows():
+            exemplo = f"""
+            --- Exemplo {index + 1} ---
+            TEXTO ORIGINAL: {row['texto_original']}
+            RESUMO ESPERADO: {row['resumo_esperado']}
+            """
+            exemplos_formatados.append(exemplo)
+            
+        return exemplos_formatados
+        
+    except Exception as e:
+        print(f"Erro ao carregar exemplos de resumo: {e}")
+        return []
+
 def aplicar_logica_hierarquia(termos_sugeridos, mapa_hierarquia):
     termos_finais = set(termos_sugeridos)
     mapa_inverso_hierarquia = {}
@@ -792,13 +824,18 @@ def aplicar_logica_hierarquia(termos_sugeridos, mapa_hierarquia):
     termos_finais = termos_finais - termos_a_remover
     return list(termos_finais)
 
-def gerar_resumo(texto_original):
+def gerar_resumo(texto_original, exemplos_resumos):
+    """
+    Gera um resumo da proposição legislativa usando a API Gemini,
+    seguindo regras rigorosas e exemplos de Few-Shot.
+    """
     api_key = get_api_key()
     
     if not api_key:
         st.error("Erro: A chave de API não foi configurada.")
         return None
 
+    # URL e Modelo
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     regras_adicionais = """
@@ -824,14 +861,29 @@ def gerar_resumo(texto_original):
     - Todas as palavras de origem estrangeira devem ser escritas entre aspas.
     - Represente os numerais de 0 a 9 por extenso, para 10 ou mais, use apenas o algarismo.
     """
-
-    prompt_resumo = f"""
-    Resuma a seguinte proposição legislativa de forma clara, concisa e com as regras abaixo.
     
-    Regras para o Resumo:
+    # 1. Prepara a seção de exemplos para o Prompt
+    exemplos_prompt = "\n".join(exemplos_resumos)
+    contexto_exemplos = ""
+    if exemplos_prompt:
+        contexto_exemplos = f"""
+        # EXEMPLOS DE FORMATAÇÃO E ESTILO (Few-Shot Examples)
+        Aqui estão exemplos de como o resumo final DEVE ser formatado e escrito, aplicando todas as regras abaixo. Use estes exemplos para padronizar sua resposta.
+        {exemplos_prompt}
+        """
+
+    # 2. Constrói o Prompt Final
+    prompt_resumo = f"""
+    {contexto_exemplos}
+    
+    # INSTRUÇÃO PRINCIPAL
+    Resuma a seguinte proposição legislativa de forma clara, concisa e com as regras abaixo. Sua resposta deve ser apenas o resumo, sem cabeçalhos.
+    
+    # Regras para o Resumo
     {regras_adicionais}
     
-    Texto da Proposição: {texto_original}
+    # Texto da Proposição a ser resumida
+    {texto_original}
     """
     
     payload = {
