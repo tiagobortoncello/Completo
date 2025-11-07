@@ -388,41 +388,26 @@ class ExecutiveProcessor:
 
     def find_relevant_pages(self) -> tuple:
         try:
-            # Substituindo pypdf por fitz (PyMuPDF)
-            doc = fitz.open(stream=self.pdf_bytes, filetype="pdf")
+            reader = pypdf.PdfReader(io.BytesIO(self.pdf_bytes))
             start_page_num, end_page_num = None, None
 
-            for i, page in enumerate(doc):
-                # Usando get_text() do fitz
-                text = page.get_text("text") or ""
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text() or ""
                 if not text.strip():
                     continue
-
                 if re.search(r'Leis\s*e\s*Decretos', text, re.IGNORECASE):
                     start_page_num = i
-                
-                # O critério de parada deve ser encontrado APÓS o de início,
-                # e geralmente é uma seção subsequente.
-                if start_page_num is not None and i > start_page_num and re.search(r'Atos\s*do\s*Governador', text, re.IGNORECASE):
+                if re.search(r'Atos\s*do\s*Governador', text, re.IGNORECASE):
                     end_page_num = i
-                    break # Se encontrou o fim, pode parar.
 
-            doc.close()
-
-            if start_page_num is None or end_page_num is None or start_page_num >= end_page_num:
+            if start_page_num is None or end_page_num is None or start_page_num > end_page_num:
                 st.warning("Não foi encontrado o trecho de 'Leis e Decretos' ou 'Atos do Governador' para delimitar a seção.")
-                # Se não encontrar o delimitador, você pode tentar retornar a página toda para garantir
-                # que o resto do processamento ocorra, se for o caso do seu extrator.
-                # Exemplo: return 0, len(doc)
                 return None, None
 
-            # O PyMuPDF (fitz) usa índices baseados em 0, e a iteração é direta.
-            # Retornamos o índice de início e o índice de parada (exclusivo).
-            return start_page_num, end_page_num
+            return start_page_num, end_page_num + 1
 
         except Exception as e:
-            # Mudança na mensagem para refletir a biblioteca correta
-            st.error(f"Erro ao buscar páginas relevantes com PyMuPDF: {e}")
+            st.error(f"Erro ao buscar páginas relevantes com PyPDF: {e}")
             return None, None
 
     def process_pdf(self) -> pd.DataFrame:
