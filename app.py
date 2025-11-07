@@ -181,7 +181,7 @@ class LegislativeProcessor:
         if numero_ano not in reqs_to_ignore:
             requerimentos.append(["RQC", num_part, ano, "", "", "Recebido para apreciação"])
 
-    # 🆕 NOVO PADRÃO: REQUERIMENTO PREJUDICADO
+    # NOVO PADRÃO: REQUERIMENTO PREJUDICADO
     rqc_prejudicado_pattern = re.compile(
         r"é\s+prejudicado\s+o\s+Requerimento(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
         re.IGNORECASE | re.DOTALL
@@ -191,13 +191,9 @@ class LegislativeProcessor:
         num_part = match.group(1).replace('.', '')
         ano = match.group(2)
         numero_ano = f"{num_part}/{ano}"
-        # Se for um RQC, e não estiver na lista de ignorados, adiciona como "Prejudicado"
         if numero_ano not in reqs_to_ignore:
-            # O problema não especifica se deve ser RQN ou RQC.
-            # Baseado no exemplo "Nos termos do art. 284...", que geralmente é votação/deliberação,
-            # e na estrutura de outros padrões (rqc_pattern_aprovado), usei "RQC".
             requerimentos.append(["RQC", num_part, ano, "", "", "Prejudicado"])
-    # ⬆️ FIM DO NOVO PADRÃO
+    # FIM DO NOVO PADRÃO
     
     rqn_pattern = re.compile(r"^(?:\s*)(Nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
     rqc_old_pattern = re.compile(r"^(?:\s*)(nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
@@ -213,7 +209,7 @@ class LegislativeProcessor:
             num_part, ano = nums_in_block[0].replace(".", "").split("/")
             numero_ano = f"{num_part}/{ano}"
             if numero_ano not in reqs_to_ignore:
-                classif = classify_req(block) # Assuming classify_req is defined elsewhere
+                classif = classify_req(block) # Assumindo que 'classify_req' está definida em outro lugar
                 requerimentos.append([sigla_prefix, num_part, ano, "", "", classif])
 
     nao_recebidas_header_pattern = re.compile(r"PROPOSIÇÕES\s*NÃO\s*RECEBIDAS", re.IGNORECASE)
