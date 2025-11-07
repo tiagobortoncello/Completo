@@ -128,10 +128,7 @@ class LegislativeProcessor:
         )
 
     def process_requerimentos(self) -> pd.DataFrame:
-        req_dict = {}
-        reqs_to_ignore = set()
-
-        # --- Padrões de exclusão ---
+        requerimentos = []
         ignore_pattern = re.compile(
             r"Ofício nº .*?,.*?relativas ao Requerimento\s*nº (\d{1,4}\.?\d{0,3}/\d{4})",
             re.IGNORECASE | re.DOTALL
@@ -140,7 +137,7 @@ class LegislativeProcessor:
             r"(da Comissão.*?, informando que, na.*?foi aprovado o Requerimento\s*nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
-
+        reqs_to_ignore = set()
         for match in ignore_pattern.finditer(self.text):
             numero_ano = match.group(1).replace(".", "")
             reqs_to_ignore.add(numero_ano)
@@ -150,16 +147,6 @@ class LegislativeProcessor:
             numero_ano = f"{num_part}/{ano}"
             reqs_to_ignore.add(numero_ano)
 
-        def add_req(sigla, num_part, ano, classif, from_block=False):
-            key = (sigla, num_part, ano)
-            # Sempre dá prioridade a classificações temáticas (não vazias)
-            if key not in req_dict:
-                req_dict[key] = {"Sigla": sigla, "Número": num_part, "Ano": ano, "Coluna4": "", "Coluna5": "", "Classificação": classif}
-            elif classif and (not req_dict[key]["Classificação"] or not from_block):
-                # Se já existe, mas nova classificação é temática e anterior era genérica, sobrescreve
-                req_dict[key]["Classificação"] = classif
-
-        # --- Desfechos genéricos (baixa prioridade) ---
         req_recebimento_pattern = re.compile(
             r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
             re.IGNORECASE | re.DOTALL
@@ -169,7 +156,7 @@ class LegislativeProcessor:
             ano = match.group(2)
             numero_ano = f"{num_part}/{ano}"
             if numero_ano not in reqs_to_ignore:
-                add_req("RQN", num_part, ano, "Recebido")
+                requerimentos.append(["RQN", num_part, ano, "", "", "Recebido"])
 
         rqc_pattern_aprovado = re.compile(
             r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+aprovado\s+o\s+Requerimento(?:s)?(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
@@ -180,7 +167,7 @@ class LegislativeProcessor:
             ano = match.group(2)
             numero_ano = f"{num_part}/{ano}"
             if numero_ano not in reqs_to_ignore:
-                add_req("RQC", num_part, ano, "Aprovado")
+                requerimentos.append(["RQC", num_part, ano, "", "", "Aprovado"])
 
         rqc_recebido_apreciacao_pattern = re.compile(
             r"É recebido pela\s+presidência, para posterior apreciação, o Requerimento(?: nº| Nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
@@ -191,8 +178,9 @@ class LegislativeProcessor:
             ano = match.group(2)
             numero_ano = f"{num_part}/{ano}"
             if numero_ano not in reqs_to_ignore:
-                add_req("RQC", num_part, ano, "Recebido para apreciação")
+                requerimentos.append(["RQC", num_part, ano, "", "", "Recebido para apreciação"])
 
+        # NOVO PADRÃO: REQUERIMENTO PREJUDICADO
         rqc_prejudicado_pattern = re.compile(
             r"é\s+prejudicado\s+o\s+Requerimento(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
             re.IGNORECASE | re.DOTALL
@@ -202,9 +190,9 @@ class LegislativeProcessor:
             ano = match.group(2)
             numero_ano = f"{num_part}/{ano}"
             if numero_ano not in reqs_to_ignore:
-                add_req("RQC", num_part, ano, "Prejudicado")
+                requerimentos.append(["RQC", num_part, ano, "", "", "Prejudicado"])
+        # FIM DO NOVO PADRÃO
 
-        # --- Classificação temática (alta prioridade) ---
         rqn_pattern = re.compile(r"^(?:\s*)(Nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
         rqc_old_pattern = re.compile(r"^(?:\s*)(nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
         for pattern, sigla_prefix in [(rqn_pattern, "RQN"), (rqc_old_pattern, "RQC")]:
@@ -220,10 +208,8 @@ class LegislativeProcessor:
                 numero_ano = f"{num_part}/{ano}"
                 if numero_ano not in reqs_to_ignore:
                     classif = classify_req(block)
-                    if classif:  # Só adiciona se tiver classificação temática
-                        add_req(sigla_prefix, num_part, ano, classif, from_block=True)
+                    requerimentos.append([sigla_prefix, num_part, ano, "", "", classif])
 
-        # --- Proposições não recebidas (baixa prioridade) ---
         nao_recebidas_header_pattern = re.compile(r"PROPOSIÇÕES\s*NÃO\s*RECEBIDAS", re.IGNORECASE)
         header_match = nao_recebidas_header_pattern.search(self.text)
         if header_match:
@@ -237,13 +223,17 @@ class LegislativeProcessor:
                 numero_ano = match.group(1).replace(".", "")
                 num_part, ano = numero_ano.split("/")
                 if numero_ano not in reqs_to_ignore:
-                    add_req("RQN", num_part, ano, "NÃO RECEBIDO")
+                    requerimentos.append(["RQN", num_part, ano, "", "", "NÃO RECEBIDO"])
 
-        # --- Converter para DataFrame ---
-        requerimentos = list(req_dict.values())
-        return pd.DataFrame(
-            requerimentos,
-            columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação']
+        unique_reqs = []
+        seen = set()
+        for r in requerimentos:
+            key = (r[0], r[1], r[2])
+            if key not in seen:
+                seen.add(key)
+                unique_reqs.append(r)
+
+        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
         )
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
