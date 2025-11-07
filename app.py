@@ -128,8 +128,8 @@ class LegislativeProcessor:
         )
 
     def process_requerimentos(self) -> pd.DataFrame:
-    requerimentos = []
-    ignore_pattern = re.compile(
+     requerimentos = []
+     ignore_pattern = re.compile(
         r"Ofício nº .*?,.*?relativas ao Requerimento\s*nº (\d{1,4}\.?\d{0,3}/\d{4})",
         re.IGNORECASE | re.DOTALL
     )
