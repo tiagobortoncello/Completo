@@ -132,34 +132,31 @@ class LegislativeProcessor:
         reqs_to_ignore = set()
 
         # --- PADRÃO CORRIGIDO: Ofícios com "prestando informações relativas ao Requerimento"
-        # Detecta: "Ofício n.º 1482/2025 – ... Requerimento nº 14.110/2025"
         oficio_pattern = re.compile(
             r"Ofício\s+n[º°\.]\s*\d+/\d{4}\s*[–-].*?prestando\s+informações\s+relativas\s+ao\s+Requerimento\s+n[º°\.]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
             re.IGNORECASE | re.DOTALL
         )
         for match in oficio_pattern.finditer(self.text):
-            num_clean = match.group(1).replace('.', '')
+            num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            reqs_to_ignore.add(f"{num_clean}/{ano}")
+            reqs_to_ignore.add(f"{num_part}/{ano}")
 
-        # --- Padrão: Requerimentos aprovados por comissão (também ignorar)
+        # --- Requerimentos aprovados por comissão (já existia, mantido)
         aprovado_pattern = re.compile(
-            r"da Comissão.*?foi aprovado o Requerimento\s+n[º°]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
+            r"(da Comissão.*?, informando que, na.*?foi aprovado o Requerimento\s*nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
         for match in aprovado_pattern.finditer(self.text):
-            num_clean = match.group(1).replace('.', '')
-            ano = match.group(2)
-            reqs_to_ignore.add(f"{num_clean}/{ano}")
+            num_part = match.group(2).replace('.', '')
+            ano = match.group(3)
+            reqs_to_ignore.add(f"{num_part}/{ano}")
 
-        # --- Função auxiliar para adicionar requerimento, se não ignorado
-        def add_req_if_not_ignored(sigla, num_part, ano, classif_desc):
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append([sigla, num_part, ano, "", "", classif_desc])
+        # --- Função auxiliar para evitar repetição
+        def _add_if_not_ignored(sigla, num_part, ano, classif):
+            if f"{num_part}/{ano}" not in reqs_to_ignore:
+                requerimentos.append([sigla, num_part, ano, "", "", classif])
 
-        # --- Padrões principais ---
-        # Recebimento de proposição → RQN
+        # --- Padrão: RECEBIMENTO DE PROPOSIÇÃO
         req_recebimento_pattern = re.compile(
             r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
             re.IGNORECASE | re.DOTALL
@@ -167,49 +164,49 @@ class LegislativeProcessor:
         for match in req_recebimento_pattern.finditer(self.text):
             num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            add_req_if_not_ignored("RQN", num_part, ano, "Recebido")
+            _add_if_not_ignored("RQN", num_part, ano, "Recebido")
 
-        # RQC: Aprovado
-        rqc_aprovado_pattern = re.compile(
+        # --- RQC: Aprovado
+        rqc_pattern_aprovado = re.compile(
             r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+aprovado\s+o\s+Requerimento(?:s)?(?:\s+n[º°]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
-        for match in rqc_aprovado_pattern.finditer(self.text):
+        for match in rqc_pattern_aprovado.finditer(self.text):
             num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            add_req_if_not_ignored("RQC", num_part, ano, "Aprovado")
+            _add_if_not_ignored("RQC", num_part, ano, "Aprovado")
 
-        # RQC: Recebido para apreciação
-        rqc_aprec_pattern = re.compile(
+        # --- RQC: Recebido para apreciação
+        rqc_recebido_apreciacao_pattern = re.compile(
             r"É recebido pela\s+presidência, para posterior apreciação, o Requerimento(?:\s+n[º°]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
-        for match in rqc_aprec_pattern.finditer(self.text):
+        for match in rqc_recebido_apreciacao_pattern.finditer(self.text):
             num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            add_req_if_not_ignored("RQC", num_part, ano, "Recebido para apreciação")
+            _add_if_not_ignored("RQC", num_part, ano, "Recebido para apreciação")
 
-        # RQC: Prejudicado
-        prejudicado_pattern = re.compile(
+        # --- RQC: Prejudicado
+        rqc_prejudicado_pattern = re.compile(
             r"é\s+prejudicado\s+o\s+Requerimento(?:\s+n[º°]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
-        for match in prejudicado_pattern.finditer(self.text):
+        for match in rqc_prejudicado_pattern.finditer(self.text):
             num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            add_req_if_not_ignored("RQC", num_part, ano, "Prejudicado")
+            _add_if_not_ignored("RQC", num_part, ano, "Prejudicado")
 
-        # RQC: Rejeitado
-        rejeitado_pattern = re.compile(
+        # --- RQC: Rejeitado
+        rqc_rejeitado_pattern = re.compile(
             r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+rejeitado\s+o\s+Requerimento(?:s)?(?:\s+n[º°]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
             re.IGNORECASE | re.DOTALL
         )
-        for match in rejeitado_pattern.finditer(self.text):
+        for match in rqc_rejeitado_pattern.finditer(self.text):
             num_part = match.group(1).replace('.', '')
             ano = match.group(2)
-            add_req_if_not_ignored("RQC", num_part, ano, "Rejeitado")
+            _add_if_not_ignored("RQC", num_part, ano, "Rejeitado")
 
-        # --- Padrões antigos: linhas com "Nº" ou "nº" ---
+        # --- Padrões antigos: linhas com "Nº" ou "nº"
         rqn_pattern = re.compile(r"^(?:\s*)(Nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
         rqc_old_pattern = re.compile(r"^(?:\s*)(nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
         for pattern, sigla_prefix in [(rqn_pattern, "RQN"), (rqc_old_pattern, "RQC")]:
@@ -222,26 +219,25 @@ class LegislativeProcessor:
                 if not nums_in_block:
                     continue
                 num_part, ano = nums_in_block[0].replace(".", "").split("/")
-                numero_ano = f"{num_part}/{ano}"
-                if numero_ano not in reqs_to_ignore:
+                if f"{num_part}/{ano}" not in reqs_to_ignore:
                     classif = classify_req(block)
                     requerimentos.append([sigla_prefix, num_part, ano, "", "", classif])
 
-        # --- Seção: PROPOSIÇÕES NÃO RECEBIDAS ---
-        nao_recebidas_header = re.compile(r"PROPOSIÇÕES\s*NÃO\s*RECEBIDAS", re.IGNORECASE)
-        header_match = nao_recebidas_header.search(self.text)
+        # --- PROPOSIÇÕES NÃO RECEBIDAS
+        nao_recebidas_header_pattern = re.compile(r"PROPOSIÇÕES\s*NÃO\s*RECEBIDAS", re.IGNORECASE)
+        header_match = nao_recebidas_header_pattern.search(self.text)
         if header_match:
             start_idx = header_match.end()
-            next_section = re.compile(r"^\s*(\*?)\s*.*\s*(\*?)\s*$", re.MULTILINE)
-            next_match = next_section.search(self.text, start_idx)
-            end_idx = next_match.start() if next_match else len(self.text)
-            block_nao_receb = self.text[start_idx:end_idx]
-            rqn_nao_receb_pattern = re.compile(r"REQUERIMENTO Nº (\d{2}\.?\d{3}/\d{4})", re.IGNORECASE)
-            for match in rqn_nao_receb_pattern.finditer(block_nao_receb):
+            next_section_pattern = re.compile(r"^\s*(\*?)\s*.*\s*(\*?)\s*$", re.MULTILINE)
+            next_section_match = next_section_pattern.search(self.text, start_idx)
+            end_idx = next_section_match.start() if next_section_match else len(self.text)
+            nao_recebidos_block = self.text[start_idx:end_idx]
+            rqn_nao_recebido_pattern = re.compile(r"REQUERIMENTO Nº (\d{2}\.?\d{3}/\d{4})", re.IGNORECASE)
+            for match in rqn_nao_recebido_pattern.finditer(nao_recebidos_block):
                 num_part, ano = match.group(1).replace(".", "").split("/")
-                add_req_if_not_ignored("RQN", num_part, ano, "NÃO RECEBIDO")
+                _add_if_not_ignored("RQN", num_part, ano, "NÃO RECEBIDO")
 
-        # --- Remover duplicatas ---
+        # --- Remover duplicatas
         unique_reqs = []
         seen = set()
         for r in requerimentos:
