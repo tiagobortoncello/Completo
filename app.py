@@ -124,109 +124,89 @@ class LegislativeProcessor:
         )
 
     def process_requerimentos(self) -> pd.DataFrame:
-        def _is_in_unwanted_context(start_idx, end_idx):
-            """Verifica se o match está dentro de parênteses ou após '-Anexe-se ao'"""
-            context_before = self.text[max(0, start_idx - 50):start_idx]
-            context_after = self.text[end_idx:end_idx + 50]
-            open_paren_count = context_before.count('(') - context_before.count(')')
-            if open_paren_count > 0:
-                return True
-            if re.search(r'-\s*Anexe-se\s+ao\s*', context_before, re.IGNORECASE):
-                return True
-            if ')' in context_after and '(' not in context_after:
-                if context_after.lstrip().startswith(')'):
-                    return True
-            return False
-
         requerimentos = []
-        reqs_to_ignore = set()
+        falsos_positivos = set()
 
-        # Ignora ofícios com respostas a requerimentos
-        ignore_pattern = re.compile(
-            r"Ofício(?:\s+da\s+\w+[^.]*?)?\s+[^.]*?relativas?\s+ao\s+Requerimento\s*nº\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in ignore_pattern.finditer(self.text):
-            num_part = match.group(1).replace(".", "")
-            ano = match.group(2)
-            reqs_to_ignore.add(f"{num_part}/{ano}")
+        # ==============================================================
+        # 1. MARCA TODOS OS REQUERIMENTOS QUE APARECEM EM OFÍCIOS/ANEXOS
+        # ==============================================================
+        # Ofícios respondendo requerimentos
+        for m in re.finditer(r"Ofício.+?Requerimento\s*n[º°]?\s*(\d{1,5}\.?\d{0,3}/\d{4})", self.text, re.I | re.S):
+            falsos_positivos.add(m.group(1).replace(".", ""))
 
-        # Ignora "-Anexe-se ao Requerimento nº ..."
-        ignore_pattern_anexo = re.compile(
-            r"-Anexe-se\s+ao\s+Requerimento\s*nº\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in ignore_pattern_anexo.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            reqs_to_ignore.add(f"{num_part}/{ano}")
+        # "-Anexe-se ao Requerimento nº ..."
+        for m in re.finditer(r"-?\s*Anexe[ -]?se\s+ao\s+Requerimento\s*n[º°]?\s*(\d{1,5}\.?\d{0,3}/\d{4})", self.text, re.I):
+            falsos_positivos.add(m.group(1).replace(".", ""))
 
-        # Ignora aprovados em comissão (já existentes)
-        aprovado_pattern = re.compile(
-            r"(da Comissão.*?, informando que, na.*?foi aprovado o Requerimento\s*nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in aprovado_pattern.finditer(self.text):
-            num_part = match.group(2).replace('.', '')
-            ano = match.group(3)
-            reqs_to_ignore.add(f"{num_part}/{ano}")
+        # Respostas de secretaria, governo, etc.
+        for m in re.finditer(r"(secretaria|resposta|prestando informações|encaminha|anexo).{0,200}?\b(\d{1,5}\.?\d{0,3}/\d{4})", self.text, re.I):
+            candidato = m.group(2).replace(".", "")
+            if re.search(r"\brequerimento\b", m.group(0), re.I):
+                falsos_positivos.add(candidato)
 
-        # === PADRÕES SEGUROS COM VERIFICAÇÃO DE CONTEXTO ===
-        patterns = [
-            (r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4})", "RQN", "Recebido"),
-            (r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+aprovado\s+o\s+Requerimento(?:s)?(?: nº| Nº| n°| nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})", "RQC", "Aprovado"),
-            (r"É recebido pela\s+presidência, para posterior apreciação, o Requerimento(?: nº| Nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})", "RQC", "Recebido para apreciação"),
-            (r"é\s+prejudicado\s+o\s+Requerimento(?: nº| Nº| n°| nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})", "RQC", "Prejudicado"),
-            (r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+rejeitado\s+o\s+Requerimento(?:s)?(?: nº| Nº| n°| nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})", "RQC", "Rejeitado"),
+        # Aprovados em comissão (já tramitados)
+        for m in re.finditer(r"da Comissão.+?aprovado o Requerimento\s*n[º°]?\s*(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I | re.S):
+            falsos_positivos.add(f"{m.group(1).replace('.', '')}/{m.group(2)}")
+
+        # ==============================================================
+        # 2. SÓ ADICIONA SE NÃO FOR FALSO POSITIVO
+        # ==============================================================
+        def adicionar_se_valido(sigla, num, ano, classificacao=""):
+            num_limpo = num.replace(".", "")
+            chave = f"{num_limpo}/{ano}"
+            if any(fp in chave or chave in fp for fp in falsos_positivos):
+                return  # é falso positivo → ignora
+            requerimentos.append([sigla, num_limpo, ano, "", "", classificacao])
+
+        # --- RECEBIMENTO DE PROPOSIÇÃO ---
+        for m in re.finditer(r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+            adicionar_se_valido("RQN", m.group(1), m.group(2), "Recebido")
+
+        # --- RQC APROVADO/REJEITADO/etc ---
+        padroes_rqc = [
+            (r"aprovado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", "Aprovado"),
+            (r"para posterior apreciação.*?(\d{1,5}\.?\d{0,3})/(\d{4})", "Recebido para apreciação"),
+            (r"prejudicado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", "Prejudicado"),
+            (r"rejeitado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", "Rejeitado"),
         ]
-        for padrao, sigla, status in patterns:
-            for m in re.finditer(padrao, self.text, re.IGNORECASE):
-                num = m.group(1).replace('.', '')
-                ano = m.group(2)
-                key = f"{num}/{ano}"
-                if key in reqs_to_ignore:
-                    continue
-                if _is_in_unwanted_context(m.start(), m.end()):
-                    continue
-                requerimentos.append([sigla, num, ano, "", "", status])
+        for padrao, status in padroes_rqc:
+            for m in re.finditer(padrao, self.text, re.I):
+                adicionar_se_valido("RQC", m.group(1), m.group(2), status)
 
-        # === LEITURA EM PLENÁRIO (Nº ..., do Vereador) ===
+        # --- LEITURA EM PLENÁRIO (Nº ..., do Vereador) ---
         main_pattern = re.compile(r"^(?:\s*)(Nº|nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
         matches = list(main_pattern.finditer(self.text))
         for i, m in enumerate(matches):
-            start = m.start()
-            end = matches[i+1].start() if i+1 < len(matches) else len(self.text)
-            bloco = self.text[start:end].strip()
-            num_ano = m.group(2).replace(".", "")
-            num, ano = num_ano.split("/")
-            key = f"{num}/{ano}"
-            if key in reqs_to_ignore:
-                continue
-            if _is_in_unwanted_context(m.start(), m.end()):
-                continue
-            sigla = "RQC" if re.search(r"comissão", bloco, re.I) else "RQN"
-            requerimentos.append([sigla, num, ano, "", "", classify_req(bloco)])
+            inicio = m.start()
+            fim = matches[i+1].start() if i+1 < len(matches) else len(self.text)
+            bloco = self.text[inicio:fim]
+            num_ano = m.group(2)
+            num = num_ano.split("/")[0].replace(".", "")
+            ano = num_ano.split("/")[1]
+            sigla = "RQC" if re.search(r"\bcomissão\b", bloco, re.I) else "RQN"
+            classificacao = classify_req(bloco)
+            adicionar_se_valido(sigla, num, ano, classificacao)
 
-        # === NÃO RECEBIDOS ===
+        # --- NÃO RECEBIDOS ---
         if header := re.search(r"PROPOSIÇÕES\s+NÃO\s+RECEBIDAS", self.text, re.I):
             bloco = self.text[header.end():]
             for m in re.finditer(r"REQUERIMENTO Nº (\d{2}\.?\d{3}/\d{4})", bloco, re.I):
                 num_ano = m.group(1).replace(".", "")
                 num, ano = num_ano.split("/")
-                key = f"{num}/{ano}"
-                if key not in reqs_to_ignore:
-                    requerimentos.append(["RQN", num, ano, "", "", "NÃO RECEBIDO"])
+                adicionar_se_valido("RQN", num, ano, "NÃO RECEBIDO")
 
-        # === REMOVE DUPLICATAS ===
-        unique = []
-        seen = set()
+        # ==============================================================
+        # 3. REMOVE DUPLICATAS E RETORNA
+        # ==============================================================
+        unicos = []
+        visto = set()
         for r in requerimentos:
             key = (r[0], r[1], r[2])
-            if key not in seen:
-                seen.add(key)
-                unique.append(r)
+            if key not in visto:
+                visto.add(key)
+                unicos.append(r)
 
-        return pd.DataFrame(unique, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+        return pd.DataFrame(unicos, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
 
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
