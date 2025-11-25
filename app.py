@@ -134,8 +134,9 @@ class LegislativeProcessor:
 
         # --- Padrões para ignorar números específicos ---
         ignore_pattern_precursor = re.compile(
-            r"(?:Ofício.*?|Anexe-se ao)\s+Requerimento\s*n[ºo]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
-            re.IGNORECASE | re.DOTALL
+           r"(?:Ofício[\s\S]{0,300}?|Anexe-se ao[\s\S]{0,300}?)"
+          r"Requerimento\s*n[ºo]?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
+          re.IGNORECASE  
         )
 
         reqs_to_ignore = set()
