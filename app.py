@@ -123,89 +123,85 @@ class LegislativeProcessor:
             columns=['Sigla', 'Número', 'Ano', 'Categoria']
         )
 
-    def process_requerimentos(self) -> pd.DataFrame:
+def process_requerimentos(self) -> pd.DataFrame:
         requerimentos = []
-        falsos_positivos = set()   # ← números que NUNCA devem aparecer na lista final
 
-        # ==============================================================
-        # 1. COLETA TODOS OS REQUERIMENTOS QUE SÃO APENAS MENÇÃO EM OFÍCIO/ANEXO
-        # ==============================================================
-        padrões_falsos = [
-            # Caso clássico do seu print
-            r"Anexe-se ao Requerimento\s*n[º°]?\s*(\d{1,5}(?:\.\d*)?/\d{4})",
-            r"Anexe-se[^\n]*?\b(\d{1,5}(?:\.\d*)?/\d{4})\b",
+        # =======================================================
+        # 1. COLETA TODOS OS NÚMEROS QUE APARECEM EM CONTEXTO DE OFÍCIO/ANEXO
+        #    (só vamos usar para bloquear, NÃO para remover tudo)
+        # =======================================================
+        falsos = set()
 
-            # Ofício respondendo requerimento (qualquer variação)
-            r"Ofício.+?Requerimento\s*n[º°]?\s*(\d{1,5}(?:\.\d*)?/\d{4})",
-            r"Ofício.+?req\.?\s*n[º°]?\s*(\d{1,5}(?:\.\d*)?/\d{4})",
-            r"Ofício[^\n]*?\b(\d{1,5}(?:\.\d*)?/\d{4})\b.+?requerimento",
+        # Pega qualquer número que esteja perto de palavras perigosas
+        contexto_perigoso = re.finditer(
+            r"(Ofício|Anexe-se|prestando informações|em atenção|em resposta|encaminha|resposta ao|ref[.:]|anexo).*?"
+            r"(\d{1,6}\.?\d{0,4}/\d{4})",
+            self.text,
+            re.I | re.S
+        )
+        for m in contexto_perigoso:
+            num = m.group(2).replace(".", "").strip()
+            if re.match(r"^\d{3,6}/\d{4}$", num):
+                falsos.add(num)
 
-            # Respostas genéricas que citam o requerimento
-            r"(prestando informações|em atenção|em resposta|encaminha|ref\.\s*|resposta ao).{0,200}requerimento.{0,100}(\d{1,5}(?:\.\d*)?/\d{4})",
-            r"requerimento.{0,100}(\d{1,5}(?:\.\d*)?/\d{4}).{0,200}(informações|ofício|anexo|resposta|encaminha)",
+        # Caso específico do seu print: "Anexe-se ao Requerimento nº 14.079/2025"
+        for m in re.finditer(r"Anexe[ -]?se[^\n]*?\b(\d{1,6}\.?\d{0,4}/\d{4})\b", self.text, re.I):
+            num = m.group(1).replace(".", "")
+            falsos.add(num)
 
-            # Comissão já aprovou (não é da sessão atual)
-            r"da Comissão.+?aprovado o Requerimento.+?(\d{1,5}(?:\.\d*)?)/(\d{4})",
-        ]
+        # =======================================================
+        # 2. FUNÇÃO QUE SÓ ADICIONA SE FOR SEGURO
+        # =======================================================
+        def add(sigla, numero, ano, classificacao=""):
+            chave = f"{numero.replace('.', '')}/{ano}"
+            if chave2 = f"{int(numero.replace('.', '')):05d}/{ano}"  # caso tenha zero à esquerda
+            if chave in falsos or chave2 in falsos:
+                return  # é do ofício → ignora
+            requerimentos.append([sigla, numero.replace('.', ''), ano, "", "", classificacao])
 
-        for padrão in padrões_falsos:
-            for m in re.finditer(padrão, self.text, re.I | re.S):
-                if m.lastindex >= 1:
-                    número_completo = m.group(m.lastindex).replace(".", "").replace(" ", "")
-                    if re.match(r"\d{1,6}/\d{4}", número_completo):
-                        falsos_positivos.add(número_completo)
+        # =======================================================
+        # 3. EXTRAÇÃO DOS REAIS (ordem correta e segura)
+        # =======================================================
 
-        # ==============================================================
-        # 2. FUNÇÃO SEGURA: só adiciona se NÃO estiver na blacklist
-        # ==============================================================
-        def adicionar_se_valido(sigla: str, número: str, ano: str, classificação: str = ""):
-            chave = f"{número.replace('.', '')}/{ano}"
-            if any(chave == fp or fp.endswith(chave) or chave in fp for fp in falsos_positivos):
-                return  # ← é o caso do seu print → ignora silenciosamente
-            requerimentos.append([sigla, número.replace('.', ''), ano, "", "", classificação])
-
-        # ==============================================================
-        # 3. EXTRAÇÃO DOS REQUERIMENTOS REAIS DA SESSÃO
-        # ==============================================================
-
-        # 3.1 Recebimento de proposição
-        for m in re.finditer(r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5})\.?\d{0,3}/(\d{4})", self.text, re.I):
-            adicionar_se_valido("RQN", m.group(1), m.group(2), "Recebido")
-
-        # 3.2 RQC votados em plenário
-        padrões_rqc = [
-            (r"aprovado o Requerimento.{0,80}(\d{1,5})\.?\d{0,3}/(\d{4})", "Aprovado"),
-            (r"rejeitado o Requerimento.{0,80}(\d{1,5})\.?\d{0,3}/(\d{4})", "Rejeitado"),
-            (r"prejudicado o Requerimento.{0,80}(\d{1,5})\.?\d{0,3}/(\d{4})", "Prejudicado"),
-            (r"para posterior apreciação.{0,120}Requerimento.{0,80}(\d{1,5})\.?\d{0,3}/(\d{4})", "Recebido para apreciação"),
-        ]
-        for padrão, status in padrões_rqc:
-            for m in re.finditer(padrão, self.text, re.I):
-                adicionar_se_valido("RQC", m.group(1), m.group(2), status)
-
-        # 3.3 Leitura em plenário (o mais importante!)
-        plenário = re.compile(r"^(?:\s*)(?:Nº|nº)\s+(\d{2,5})\.?\d{0,3}\s*/\s*(\d{4})\s*,\s*(?:do|da)", re.MULTILINE)
-        for m in plenário.finditer(self.text):
-            num = m.group(1)
-            ano = m.group(2)
-            início = m.start()
+        # 3.1 — Leitura em plenário (o mais confiável — sempre vem primeiro)
+        plenário = re.compile(r"^(?:\s*)(?:Nº|nº)\s+(\d{2,5})\.?\d*\s*/\s*(\d{4})\s*,\s*(?:do|da)", re.MULTILINE)
+        for match in plenário.finditer(self.text):
+            num = match.group(1)
+            ano = match.group(2)
+            # pega o bloco até o próximo "Nº"
+            início = match.start()
             próximo = plenário.search(self.text, início + 1)
             fim = próximo.start() if próximo else len(self.text)
             bloco = self.text[início:fim]
 
             sigla = "RQC" if re.search(r"\bcomissão\b", bloco, re.I) else "RQN"
-            classificação = classify_req(bloco)
-            adicionar_se_valido(sigla, num, ano, classificação)
+            classificacao = classify_req(bloco)
+            add(sigla, num, ano, classificacao)
 
-        # 3.4 Proposições não recebidas
+        # 3.2 — Recebimento de proposição
+        for m in re.finditer(r"RECEBIMENTO DE PROPOSIÇÃO.+?REQUERIMENTO Nº\s+(\d{1,5})\.?\d*/(\d{4})", self.text, re.I | re.S):
+            add("RQN", m.group(1), m.group(2), "Recebido")
+
+        # 3.3 — Votações de RQC
+        votacoes = [
+            (r"aprovado o Requerimento.+?(\d{1,5})\.?\d*/(\d{4})", "Aprovado"),
+            (r"rejeitado o Requerimento.+?(\d{1,5})\.?\d*/(\d{4})", "Rejeitado"),
+            (r"prejudicado o Requerimento.+?(\d{1,5})\.?\d*/(\d{4})", "Prejudicado"),
+            (r"posterior apreciação.+?Requerimento.+?(\d{1,5})\.?\d*/(\d{4})", "Recebido para apreciação"),
+        ]
+        for padrão, status in votacoes:
+            for m in re.finditer(padrão, self.text, re.I | re.S):
+                add("RQC", m.group(1), m.group(2), status)
+
+        # 3.4 — Não recebidos
         if header := re.search(r"PROPOSIÇÕES\s+NÃO\s+RECEBIDAS", self.text, re.I):
             bloco = self.text[header.end():]
-            for m in re.finditer(r"REQUERIMENTO Nº (\d{1,5})\.?\d{0,3}/(\d{4})", bloco, re.I):
-                adicionar_se_valido("RQN", m.group(1), m.group(2), "NÃO RECEBIDO")
+            for m in re.finditer(r"REQUERIMENTO Nº\s+(\d{1,5})\.?\d*/(\d{4})", bloco, re.I):
+                add("RQN", m.group(1), m.group(2), "NÃO RECEBIDO")
 
-        # ==============================================================
+        # =======================================================
         # 4. REMOVE DUPLICATAS E RETORNA
-        # ==============================================================
+        # =======================================================
         únicos = []
         vistos = set()
         for r in requerimentos:
@@ -214,7 +210,8 @@ class LegislativeProcessor:
                 vistos.add(chave)
                 únicos.append(r)
 
-        return pd.DataFrame(únicos, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+        df = pd.DataFrame(únicos, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+        return df
 
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
