@@ -127,126 +127,129 @@ class LegislativeProcessor:
             columns=['Sigla', 'Número', 'Ano', 'Categoria']
         )
 
-    def process_requerimentos(self) -> pd.DataFrame:
-        requerimentos = []
-        ignore_pattern = re.compile(
-            r"Ofício nº .*?,.*?relativas ao Requerimento\s*nº (\d{1,4}\.?\d{0,3}/\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        aprovado_pattern = re.compile(
-            r"(da Comissão.*?, informando que, na.*?foi aprovado o Requerimento\s*nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4}))",
-            re.IGNORECASE | re.DOTALL
-        )
-        reqs_to_ignore = set()
-        for match in ignore_pattern.finditer(self.text):
-            numero_ano = match.group(1).replace(".", "")
-            reqs_to_ignore.add(numero_ano)
-        for match in aprovado_pattern.finditer(self.text):
-            num_part = match.group(2).replace('.', '')
-            ano = match.group(3)
-            numero_ano = f"{num_part}/{ano}"
-            reqs_to_ignore.add(numero_ano)
+def process_requerimentos(self) -> pd.DataFrame:
+    requerimentos = []
+    
+    # 1. REQUERIMENTOS PARA IGNORAR (ofícios, respostas de secretarias, etc.)
+    reqs_to_ignore = set()
+    
+    # Ofícios que respondem requerimentos anteriores
+    for match in re.finditer(r"Ofício.*?Requerimento\s*nº\s*(\d{1,5}\.?\d{0,3}/\d{4})", self.text, re.I | re.S):
+        reqs_to_ignore.add(match.group(1).replace(".", ""))
+    
+    # Aprovados em comissão (já tramitados)
+    for match in re.finditer(r"da Comissão.*?aprovado o Requerimento\s*nº\s*(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I | re.S):
+        num = match.group(1).replace(".", "")
+        ano = match.group(2)
+        reqs_to_ignore.add(f"{num}/{ano}")
 
-        req_recebimento_pattern = re.compile(
-            r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in req_recebimento_pattern.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append(["RQN", num_part, ano, "", "", "Recebido"])
+    # 2. PADRÃO PRINCIPAL: SÓ CAPTURA REQUERIMENTOS REAIS DA SESSÃO
+    main_req_pattern = re.compile(
+        r"(?m)^"
+        r"\s*"
+        r"(?:N[º°]|\bn[º°]?\b)\s*"
+        r"(\d{1,5}(?:\.\d{1,3})?)"    # número (com ou sem ponto)
+        r"/"
+        r"(\d{4})"
+        r"\s*,\s*"
+        r"(?:do|da|dos|das)\b"
+        r"(?!"
+        r".*?\b("
+        r"ofício|secretaria|resposta|informações|prestando|encaminha|anexo|"
+        r"referente|relativa|atendendo|cumprimento|remete|encaminhando|"
+        r"envio|em\s+anexo|ref\.|junta|incluso|segue|governo|estado|prefeitura"
+        r")\b"
+        r")",
+        re.IGNORECASE
+    )
 
-        rqc_pattern_aprovado = re.compile(
-            r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+aprovado\s+o\s+Requerimento(?:s)?(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
-            re.IGNORECASE
-        )
-        for match in rqc_pattern_aprovado.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append(["RQC", num_part, ano, "", "", "Aprovado"])
+    # Processa todos os matches do padrão principal
+    matches = list(main_req_pattern.finditer(self.text))
+    for i, match in enumerate(matches):
+        num_raw = match.group(1).replace('.', '')
+        ano = match.group(2)
+        numero_ano = f"{num_raw}/{ano}"
 
-        rqc_recebido_apreciacao_pattern = re.compile(
-            r"É recebido pela\s+presidência, para posterior apreciação, o Requerimento(?: nº| Nº)?\s*(\d{1,5}(?:\.\d{0,3})?)/(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in rqc_recebido_apreciacao_pattern.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append(["RQC", num_part, ano, "", "", "Recebido para apreciação"])
+        if numero_ano in reqs_to_ignore:
+            continue
 
-        # NOVO PADRÃO: REQUERIMENTO PREJUDICADO
-        rqc_prejudicado_pattern = re.compile(
-            r"é\s+prejudicado\s+o\s+Requerimento(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in rqc_prejudicado_pattern.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append(["RQC", num_part, ano, "", "", "Prejudicado"])
-        # FIM DO NOVO PADRÃO
+        # Define se é RQN ou RQC pelo contexto próximo
+        contexto = self.text[match.start():match.start() + 600].lower()
+        is_rqc = any(frase in contexto for frase in ["da comissão", "comissão de", "rqc"])
 
-                # NOVO PADRÃO: REQUERIMENTO REJEITADO
-        rqc_rejeitado_pattern = re.compile(
-            r"É\s+recebido\s+pela\s+presidência,\s+submetido\s+a\s+votação\s+e\s+rejeitado\s+o\s+Requerimento(?:s)?(?: nº| Nº| n\u00ba| n\u00b0)?\s*(\d{1,5}(?:\.\d{0,3})?)/\s*(\d{4})",
-            re.IGNORECASE | re.DOTALL
-        )
-        for match in rqc_rejeitado_pattern.finditer(self.text):
-            num_part = match.group(1).replace('.', '')
-            ano = match.group(2)
-            numero_ano = f"{num_part}/{ano}"
-            if numero_ano not in reqs_to_ignore:
-                requerimentos.append(["RQC", num_part, ano, "", "", "Rejeitado"])
-        # FIM DO NOVO PADRÃO
+        sigla = "RQC" if is_rqc else "RQN"
 
-        rqn_pattern = re.compile(r"^(?:\s*)(Nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
-        rqc_old_pattern = re.compile(r"^(?:\s*)(nº)\s+(\d{2}\.?\d{3}/\d{4})\s*,\s*(do|da)", re.MULTILINE)
-        for pattern, sigla_prefix in [(rqn_pattern, "RQN"), (rqc_old_pattern, "RQC")]:
-            for match in pattern.finditer(self.text):
-                start_idx = match.start()
-                next_match = re.search(r"^(?:\s*)(Nº|nº)\s+(\d{2}\.?\d{3}/\d{4})", self.text[start_idx + 1:], flags=re.MULTILINE)
-                end_idx = (next_match.start() + start_idx + 1) if next_match else len(self.text)
-                block = self.text[start_idx:end_idx].strip()
-                nums_in_block = re.findall(r'\d{2}\.?\d{3}/\d{4}', block)
-                if not nums_in_block:
-                    continue
-                num_part, ano = nums_in_block[0].replace(".", "").split("/")
-                numero_ano = f"{num_part}/{ano}"
-                if numero_ano not in reqs_to_ignore:
-                    classif = classify_req(block)
-                    requerimentos.append([sigla_prefix, num_part, ano, "", "", classif])
+        # Bloco até o próximo requerimento (para classify_req)
+        prox_inicio = matches[i + 1].start() if i + 1 < len(matches) else len(self.text)
+        bloco = self.text[match.start():prox_inicio].strip()
 
-        nao_recebidas_header_pattern = re.compile(r"PROPOSIÇÕES\s*NÃO\s*RECEBIDAS", re.IGNORECASE)
-        header_match = nao_recebidas_header_pattern.search(self.text)
-        if header_match:
-            start_idx = header_match.end()
-            next_section_pattern = re.compile(r"^\s*(\*?)\s*.*\s*(\*?)\s*$", re.MULTILINE)
-            next_section_match = next_section_pattern.search(self.text, start_idx)
-            end_idx = next_section_match.start() if next_section_match else len(self.text)
-            nao_recebidos_block = self.text[start_idx:end_idx]
-            rqn_nao_recebido_pattern = re.compile(r"REQUERIMENTO Nº (\d{2}\.?\d{3}/\d{4})", re.IGNORECASE)
-            for match in rqn_nao_recebido_pattern.finditer(nao_recebidos_block):
-                numero_ano = match.group(1).replace(".", "")
-                num_part, ano = numero_ano.split("/")
-                if numero_ano not in reqs_to_ignore:
-                    requerimentos.append(["RQN", num_part, ano, "", "", "NÃO RECEBIDO"])
+        classificacao = classify_req(bloco)
+        requerimentos.append([sigla, num_raw, ano, "", "", classificacao])
 
-        unique_reqs = []
-        seen = set()
-        for r in requerimentos:
-            key = (r[0], r[1], r[2])
-            if key not in seen:
-                seen.add(key)
-                unique_reqs.append(r)
+    # 3. PADRÕES ESPECÍFICOS COMPLEMENTARES (mantidos e seguros)
 
-        return pd.DataFrame(unique_reqs, columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação'])
+    # Recebimento de proposição
+    for m in re.finditer(r"RECEBIMENTO DE PROPOSIÇÃO[\s\S]*?REQUERIMENTO Nº (\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+        num = m.group(1).replace('.', '')
+        ano = m.group(2)
+        if f"{num}/{ano}" not in reqs_to_ignore:
+            requerimentos.append(["RQN", num, ano, "", "", "Recebido"])
+
+    # RQC aprovado em plenário
+    for m in re.finditer(r"recebido pela presidência, submetido a votação e aprovado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+        num = m.group(1).replace('.', '')
+        ano = m.group(2)
+        if f"{num}/{ano}" not in reqs_to_ignore:
+            requerimentos.append(["RQC", num, ano, "", "", "Aprovado"])
+
+    # RQC recebido para apreciação
+    for m in re.finditer(r"recebido pela presidência, para posterior apreciação, o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+        num = m.group(1).replace('.', '')
+        ano = m.group(2)
+        if f"{num}/{ano}" not in reqs_to_ignore:
+            requerimentos.append(["RQC", num, ano, "", "", "Recebido para apreciação"])
+
+    # RQC prejudicado
+    for m in re.finditer(r"é prejudicado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+        num = m.group(1).replace('.', '')
+        ano = m.group(2)
+        if f"{num}/{ano}" not in reqs_to_ignore:
+            requerimentos.append(["RQC", num, ano, "", "", "Prejudicado"])
+
+    # RQC rejeitado
+    for m in re.finditer(r"recebido pela presidência, submetido a votação e rejeitado o Requerimento.*?(\d{1,5}\.?\d{0,3})/(\d{4})", self.text, re.I):
+        num = m.group(1).replace('.', '')
+        ano = m.group(2)
+        if f"{num}/{ano}" not in reqs_to_ignore:
+            requerimentos.append(["RQC", num, ano, "", "", "Rejeitado"])
+
+    # Proposições não recebidas
+    header_match = re.search(r"PROPOSIÇÕES\s+NÃO\s+RECEBIDAS", self.text, re.I)
+    if header_match:
+        inicio = header_match.end()
+        fim_match = re.search(r"^\s*\*?\s*.+\s*\*?\s*$", self.text[inicio:], re.M)
+        fim = inicio + (fim_match.start() if fim_match else len(self.text[inicio:]))
+        bloco_nao = self.text[inicio:fim]
+
+        for m in re.finditer(r"REQUERIMENTO Nº (\d{2}\.?\d{3}/\d{4})", bloco_nao, re.I):
+            num_ano = m.group(1).replace(".", "")
+            num, ano = num_ano.split("/")
+            if num_ano not in reqs_to_ignore:
+                requerimentos.append(["RQN", num, ano, "", "", "NÃO RECEBIDO"])
+
+    # 4. REMOVE DUPLICATAS
+    vistos = set()
+    unicos = []
+    for req in requerimentos:
+        chave = (req[0], req[1], req[2])
+        if chave not in vistos:
+            vistos.add(chave)
+            unicos.append(req)
+
+    return pd.DataFrame(
+        unicos,
+        columns=['Sigla', 'Número', 'Ano', 'Coluna4', 'Coluna5', 'Classificação']
+    )
     def process_pareceres(self) -> pd.DataFrame:
         found_projects = {}
         pareceres_start_pattern = re.compile(r"TRAMITAÇÃO DE PROPOSIÇÕES")
