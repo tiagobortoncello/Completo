@@ -437,13 +437,18 @@ class AdministrativeProcessor:
 
 class ExecutiveProcessor:
     def __init__(self, pdf_bytes: bytes):
-        self.pdf_bytes = pdf_bytes
+        # 1. Pré-processamento: Limpa os bytes do PDF antes de armazenar.
+        self.pdf_bytes = self._clean_pdf_bytes(pdf_bytes)
+        
+        # 2. Mapeamento de Tipos
         self.mapa_tipos = {
             "LEI": "LEI",
             "LEI COMPLEMENTAR": "LCP",
             "DECRETO": "DEC",
             "DECRETO NE": "DNE"
         }
+        
+        # 3. Expressões Regulares
         self.norma_regex = re.compile(
             r'\b(LEI\s+COMPLEMENTAR|LEI|DECRETO\s+NE|DECRETO)\s+N[º°]\s*([\d\s\.]+),\s*DE\s+([A-Z\s\d]+)\b'
         )
@@ -456,11 +461,32 @@ class ExecutiveProcessor:
             re.IGNORECASE
         )
 
+    def _clean_pdf_bytes(self, dirty_bytes: bytes) -> bytes:
+        """
+        Procura a assinatura binária do PDF (%PDF-) e remove quaisquer bytes
+        anteriores a ela. Isso corrige o erro 'Cannot find Root object'.
+        """
+        pdf_signature = b'%PDF-'
+        try:
+            # Tenta encontrar o índice da assinatura.
+            start_index = dirty_bytes.index(pdf_signature)
+            
+            if start_index > 0:
+                # Se start_index for maior que zero, encontramos lixo binário.
+                # Retorna apenas a parte que começa com '%PDF-'.
+                return dirty_bytes[start_index:]
+            
+            # Se start_index for 0, o PDF já estava correto.
+            return dirty_bytes
+            
+        except ValueError:
+            # Se a assinatura não for encontrada, retorna os bytes originais.
+            return dirty_bytes
+
     def find_relevant_pages(self) -> tuple:
         try:
             reader = pypdf.PdfReader(io.BytesIO(self.pdf_bytes))
             start_page_num, end_page_num = None, None
-
             for i, page in enumerate(reader.pages):
                 text = page.extract_text() or ""
                 if not text.strip():
@@ -469,22 +495,18 @@ class ExecutiveProcessor:
                     start_page_num = i
                 if re.search(r'Atos\s*do\s*Governador', text, re.IGNORECASE):
                     end_page_num = i
-
             if start_page_num is None or end_page_num is None or start_page_num > end_page_num:
                 st.warning("Não foi encontrado o trecho de 'Leis e Decretos' ou 'Atos do Governador' para delimitar a seção.")
                 return None, None
-
             return start_page_num, end_page_num + 1
-
         except Exception as e:
             st.error(f"Erro ao buscar páginas relevantes com PyPDF: {e}")
             return None, None
-
+            
     def process_pdf(self) -> pd.DataFrame:
         start_page_idx, end_page_idx = self.find_relevant_pages()
         if start_page_idx is None:
             return pd.DataFrame()
-
         trechos = []
         try:
             with pdfplumber.open(io.BytesIO(self.pdf_bytes)) as pdf:
@@ -502,43 +524,38 @@ class ExecutiveProcessor:
         except Exception as e:
             st.error(f"Erro ao extrair texto detalhado do PDF do Executivo: {e}")
             return pd.DataFrame()
-
+            
         dados = []
         ultima_norma = None
         seen_alteracoes = set()
-
         for t in trechos:
             pagina = t["pagina"]
             coluna = t["coluna"]
             texto = t["texto"]
-
             eventos = []
             for m in self.norma_regex.finditer(texto):
                 eventos.append(('published', m.start(), m))
             for c in self.comandos_regex.finditer(texto):
                 eventos.append(('command', c.start(), c))
             eventos.sort(key=lambda e: e[1])
-
             for ev in eventos:
                 tipo_ev, pos_ev, match_obj = ev
                 command_text = match_obj.group(0).lower()
-
                 if tipo_ev == 'published':
                     match = match_obj
                     tipo_raw = match.group(1).strip()
                     tipo = self.mapa_tipos.get(tipo_raw.upper(), tipo_raw)
                     numero = match.group(2).replace(" ", "").replace(".", "")
                     data_texto = match.group(3).strip()
-
                     try:
                         partes = data_texto.split(" DE ")
                         dia = partes[0].zfill(2)
-                        mes = meses[partes[1].upper()]
+                        # Assumindo que 'meses' é uma variável global/acessível no escopo principal
+                        mes = meses[partes[1].upper()] 
                         ano = partes[2]
                         sancao = f"{dia}/{mes}/{ano}"
                     except:
                         sancao = ""
-
                     linha = {
                         "Página": pagina,
                         "Coluna": coluna,
@@ -550,16 +567,13 @@ class ExecutiveProcessor:
                     dados.append(linha)
                     ultima_norma = linha
                     seen_alteracoes = set()
-
                 elif tipo_ev == 'command':
                     if ultima_norma is None:
                         continue
-
                     raio = 150
                     start_block = max(0, pos_ev - raio)
                     end_block = min(len(texto), pos_ev + raio)
                     bloco = texto[start_block:end_block]
-
                     alteracoes_para_processar = []
                     if 'revogado' in command_text:
                         alteracoes_para_processar = list(self.norma_alterada_regex.finditer(bloco))
@@ -572,30 +586,24 @@ class ExecutiveProcessor:
                                 key=lambda m: abs(m.start() - pos_comando_no_bloco)
                             )
                             alteracoes_para_processar = [melhor_candidato]
-
                     for alt in alteracoes_para_processar:
                         tipo_alt_raw = alt.group(1).strip()
                         tipo_alt = self.mapa_tipos.get(tipo_alt_raw.upper(), tipo_alt_raw)
                         num_alt = alt.group(2).replace(" ", "").replace(".", "").replace("/", "")
-
                         data_texto_alt = alt.group(3)
                         ano_alt = ""
                         if data_texto_alt:
                             ano_match = re.search(r'(\d{4})', data_texto_alt)
                             if ano_match:
                                 ano_alt = ano_match.group(1)
-
                         chave_alt = f"{tipo_alt} {num_alt}"
                         if ano_alt:
                             chave_alt += f" {ano_alt}"
-
                         if tipo_alt == ultima_norma["Tipo"] and num_alt == ultima_norma["Número"]:
                             continue
-
                         if chave_alt in seen_alteracoes:
                             continue
                         seen_alteracoes.add(chave_alt)
-
                         if ultima_norma["Alterações"] == "":
                             ultima_norma["Alterações"] = chave_alt
                         else:
@@ -607,9 +615,8 @@ class ExecutiveProcessor:
                                 "Número": "",
                                 "Alterações": chave_alt
                             })
-
         return pd.DataFrame(dados) if dados else pd.DataFrame()
-
+        
     def to_csv(self):
         df = self.process_pdf()
         if df.empty:
